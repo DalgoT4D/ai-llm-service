@@ -11,13 +11,24 @@ app = Flask(__name__)
 log_dir = Path(__file__).resolve().parent / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
 
+
 # logging configuration
+class CustomFormatter(logging.Formatter):
+    def format(self, record):
+        cwd = os.getcwd()
+        abs_path = record.pathname
+        rel_path = os.path.relpath(abs_path, cwd)
+        record.pathname = rel_path
+        return super().format(record)
+
+
 dictConfig(
     {
         "version": 1,
         "formatters": {
             "default": {
-                "format": "[%(asctime)s] %(levelname)s in %(module)s: %(message)s",
+                "()": CustomFormatter,
+                "format": "[%(asctime)s] %(levelname)s in %(pathname)s: %(message)s",
                 "datefmt": "%Y-%m-%d %H:%M:%S %Z",
             }
         },
@@ -51,11 +62,11 @@ def check_auth():
 
 
 # register routes
-app.register_blueprint(text_summ)
+app.register_blueprint(text_summ, url_prefix="/api")
 
 
 # home route
-@app.route("/", methods=["GET"])
+@app.route("/api", methods=["GET"])
 def home():
     return jsonify(message="Hello, World!")
 
