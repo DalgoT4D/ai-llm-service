@@ -2,7 +2,7 @@ import os
 import uvicorn
 from pathlib import Path
 import logging
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from celery import Celery
 from starlette.middleware.base import BaseHTTPMiddleware

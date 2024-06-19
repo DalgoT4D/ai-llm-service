@@ -35,7 +35,7 @@ To run the `ai-llm-service` project, follow these steps:
 
 5. Start the Celery worker(s):
     ```
-    celery -A main.celery worker -n llm --loglevel=info -Q llm
+    celery -A main.celery worker -n llm -Q llm --loglevel=INFO
     ```
 
 6. Monitor your celery tasks and queues using flower:
