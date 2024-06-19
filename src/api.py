@@ -1,7 +1,7 @@
 import os
 import logging
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
 from celery import shared_task
 from celery.result import AsyncResult
 
@@ -24,7 +24,7 @@ logger = logging.getLogger()
 )
 def query_file(
     self,
-    log_file: str,
+    file_path: str,
     openai_key: str,
     assistant_prompt: str,
     queries: list[str],
@@ -33,7 +33,7 @@ def query_file(
     try:
         with OpenAIFileAssistant(
             openai_key,
-            log_file,
+            file_path,
             assistant_prompt,
         ) as fa:
             for i, prompt in enumerate(queries):
@@ -51,6 +51,7 @@ def query_file(
 
 
 class FileQueryRequest(BaseModel):
+    file_path: str
     assistant_prompt: str
     queries: list[str]
 
@@ -61,7 +62,7 @@ async def post_query_file(payload: FileQueryRequest):
         logger.info("Inside text summarization route")
         task = query_file.apply_async(
             kwargs={
-                "log_file": "app.txt",
+                "file_path": payload.file_path,
                 "openai_key": os.getenv("OPENAI_API_KEY"),
                 "assistant_prompt": payload.assistant_prompt,
                 "queries": payload.queries,

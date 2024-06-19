@@ -6,6 +6,7 @@ from pathlib import Path
 from argparse import ArgumentParser
 from dataclasses import dataclass, asdict
 import logging
+import io
 
 from openai import OpenAI
 from openai.types.beta.assistant import Assistant
@@ -159,13 +160,51 @@ class OpenAIFileAssistant:
 
         raise TypeError(err.code)
 
-    def __init__(self, openai_key, log_file, instructions, retries=2, model="gpt-4o"):
+    def __init__(self, openai_key, file_path, instructions, retries=2, model="gpt-4o"):
         self.retries = retries
 
         self.client = OpenAI(api_key=openai_key)
         self.parser = AssistantMessage(self.client)
 
-        with Path(log_file).open("rb") as fp:
+        logs_text = """
+        PIN: 213-794-082
+        [2024-06-18 21:22:09 IST] INFO in main.py: successfully authenticated
+        [2024-06-18 21:22:09 IST] INFO in src/api.py: Inside text summarization route
+        [2024-06-18 21:22:09 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py: 127.0.0.1 - - [18/Jun/2024 21:22:09] "POST /api/text HTTP/1.1" 200 -
+        [2024-06-18 21:24:00 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Detected change in '/Users/ishankoradia/Tech4dev/Dalgo/platform/ai-llm-service/src/api.py', reloading
+        [2024-06-18 21:24:00 IST] INFO in _internal:  * Restarting with stat
+        [2024-06-18 21:24:01 IST] WARNING in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger is active!
+        [2024-06-18 21:24:01 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger PIN: 213-794-082
+        [2024-06-18 21:25:22 IST] INFO in main.py: successfully authenticated
+        [2024-06-18 21:25:22 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py: 127.0.0.1 - - [18/Jun/2024 21:25:22] "[33mPOST /api/text HTTP/1.1[0m" 404 -
+        [2024-06-18 21:25:30 IST] INFO in main.py: successfully authenticated
+        [2024-06-18 21:25:30 IST] INFO in src/api.py: Inside text summarization route
+        [2024-06-18 21:25:30 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py: 127.0.0.1 - - [18/Jun/2024 21:25:30] "POST /api/summarize HTTP/1.1" 200 -
+        [2024-06-18 21:26:47 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Detected change in '/Users/ishankoradia/Tech4dev/Dalgo/platform/ai-llm-service/src/api.py', reloading
+        [2024-06-18 21:26:47 IST] INFO in _internal:  * Restarting with stat
+        [2024-06-18 21:26:47 IST] WARNING in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger is active!
+        [2024-06-18 21:26:47 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger PIN: 213-794-082
+        [2024-06-18 21:26:49 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Detected change in '/Users/ishankoradia/Tech4dev/Dalgo/platform/ai-llm-service/src/api.py', reloading
+        [2024-06-18 21:26:49 IST] INFO in _internal:  * Restarting with stat
+        [2024-06-18 21:26:49 IST] WARNING in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger is active!
+        [2024-06-18 21:26:49 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger PIN: 213-794-082
+        [2024-06-18 21:38:27 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Detected change in '/Users/ishankoradia/Tech4dev/Dalgo/platform/ai-llm-service/src/redis.py', reloading
+        [2024-06-18 21:38:27 IST] INFO in _internal:  * Restarting with stat
+        [2024-06-18 21:38:28 IST] WARNING in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger is active!
+        [2024-06-18 21:38:28 IST] INFO in venv/lib/python3.10/site-packages/werkzeug/_internal.py:  * Debugger PIN: 213-794-082
+        [2024-06-18 21:46:49 IST
+        """
+        fp = io.StringIO(logs_text)
+        fp = io.BytesIO(logs_text.encode())
+        fp = Path("temp_file_name.txt").write_bytes(
+            io.BytesIO(logs_text.encode()).getbuffer().tobytes()
+        )
+        # self.document = self.client.files.create(
+        #     file=file_path,
+        #     purpose="assistants",
+        # )
+
+        with Path(file_path).open("rb") as fp:
             self.document = self.client.files.create(
                 file=fp,
                 purpose="assistants",
