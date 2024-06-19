@@ -1,15 +1,22 @@
 import os
+import uvicorn
 from pathlib import Path
-from flask import Flask, request, make_response, jsonify
-from src.api import text_summ
-from logging.config import dictConfig
 import logging
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from celery import Celery
+from starlette.middleware.base import BaseHTTPMiddleware
+from logging.config import dictConfig
+from dotenv import load_dotenv
 
-
-app = Flask(__name__)
+from src.api import router as text_summarization_router
+from config.celery_config import CeleryConfig
 
 log_dir = Path(__file__).resolve().parent / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
+
+
+load_dotenv()
 
 
 # logging configuration
@@ -51,25 +58,35 @@ dictConfig(
 )
 
 
-# auth middleware
-@app.before_request
-def check_auth():
-    auth_token = request.headers.get("Authorization")
-    if not auth_token or auth_token != os.getenv("API_KEY"):
-        logging.info("Request authenticated")
-        return make_response({"message": "unauthorized"}, 401)
-    logging.info("successfully authenticated")
+class CustomAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Add your custom logic here
+        if request.headers.get("authorization") != os.getenv("API_KEY"):
+            logging.info("hi there")
+            return JSONResponse(status_code=401, content={"message": "Unauthorized"})
+        return await call_next(request)
 
 
-# register routes
-app.register_blueprint(text_summ, url_prefix="/api")
+app = FastAPI()
+
+# celery
+celery = Celery(
+    "t4d-ai-llm",
+)
+celery.config_from_object(CeleryConfig, namespace="CELERY")
+
+# middleware
+app.add_middleware(CustomAuthMiddleware)
+
+# routes
+app.include_router(text_summarization_router, prefix="/api")
 
 
 # home route
-@app.route("/api", methods=["GET"])
-def home():
-    return jsonify(message="Hello, World!")
+@app.get("/api")
+async def home():
+    return {"message": "Welcome to the T4D's AI/LLM service"}
 
 
 if __name__ == "__main__":
-    app.run(debug=True, load_dotenv=True, port=7000)
+    uvicorn.run("main:app", port=7001, reload=True)
