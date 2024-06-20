@@ -11,9 +11,13 @@ from dotenv import load_dotenv
 
 from src.api import router as text_summarization_router
 from config.celery_config import CeleryConfig
+from config.constants import TMP_UPLOAD_DIR_NAME, LOGS_DIR_NAME
 
-log_dir = Path(__file__).resolve().parent / "logs"
+log_dir = Path(__file__).resolve().parent / LOGS_DIR_NAME
 log_dir.mkdir(parents=True, exist_ok=True)
+
+tmp_upload_dir = Path(__file__).resolve().parent / TMP_UPLOAD_DIR_NAME
+tmp_upload_dir.mkdir(parents=True, exist_ok=True)
 
 
 load_dotenv()

@@ -1,9 +1,12 @@
 import os
 import logging
+import time
+from pathlib import Path
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, UploadFile
 from celery import shared_task
 from celery.result import AsyncResult
+from config.constants import TMP_UPLOAD_DIR_NAME
 
 
 from src.file_search.openai_assistant import OpenAIFileAssistant
@@ -69,6 +72,24 @@ async def post_query_file(payload: FileQueryRequest):
             }
         )
         return {"task_id": task.id}
+    except Exception as err:
+        logger.error(err)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+@router.post("/file/upload")
+async def post_upload_knowledge_file(file: UploadFile):
+    try:
+        logger.info("reading file contents")
+        if file is None:
+            raise HTTPException(status_code=400, detail="No file uploaded")
+        file_dir = Path(f"{TMP_UPLOAD_DIR_NAME}/{int(time.time())}")
+        file_dir.mkdir(parents=True, exist_ok=True)
+        with open(file_dir / file.filename, "wb") as buffer:
+            buffer.write(file.file.read())
+
+        # TODO: maybe tokenize here; so that we dont give back the bare path
+        return {"file_path": file_dir / file.filename}
     except Exception as err:
         logger.error(err)
         raise HTTPException(status_code=500, detail="Internal Server Error")
