@@ -2,6 +2,7 @@ import sys
 import math
 import time
 import json
+import uuid
 from pathlib import Path
 from argparse import ArgumentParser
 from dataclasses import dataclass, asdict
@@ -14,87 +15,10 @@ from openai.types.beta.threads.message import Message
 from openai.types.beta.threads.annotation import Annotation
 import pandas as pd
 
+from src.file_search.session import OpenAISessionState, FileSearchSession
+
 
 logger = logging.getLogger()
-
-
-# class OpenAIFileAssistant:
-#     _tools = [
-#         {
-#             "type": "file_search",
-#         }
-#     ]
-
-#     def __init__(self, openai_key: str, assistant_prompt: str, model: str = "gpt-4o"):
-#         self.model = model
-#         self.client = OpenAI(api_key=openai_key)
-#         self.assistant_prompt = assistant_prompt
-
-#     def query(self, question_prompt: str):
-#         logger.info(f"inside the query method with question: {question_prompt}")
-
-#         with Path("app.txt").open("rb") as fp:
-#             self.document = self.client.files.create(
-#                 file=fp,
-#                 purpose="assistants",
-#             )
-#         self.assistant = self.client.beta.assistants.create(
-#             model=self.model,
-#             temperature=1e-6,
-#             tools=self._tools,
-#             instructions=self.assistant_prompt,
-#         )
-#         self.thread = self.client.beta.threads.create()
-
-#         message = self.client.beta.threads.messages.create(
-#             self.thread.id,
-#             role="user",
-#             content=question_prompt,
-#             attachments=[
-#                 {
-#                     "tools": self._tools,
-#                     "file_id": self.document.id,
-#                 }
-#             ],
-#         )
-
-#         run = self.client.beta.threads.runs.create_and_poll(
-#             thread_id=self.thread.id,
-#             assistant_id=self.assistant.id,
-#         )
-#         logger.info(f"Status of runnning the thread via create_and_poll : {run.status}")
-#         if run.status == "completed":
-#             messages: list[Message] = self.client.beta.threads.messages.list(
-#                 thread_id=self.thread.id,
-#                 run_id=run.id,
-#             )
-#             logger.info("Query completed")
-#             logger.info(messages)
-#             body = []
-#             for mes in messages:
-#                 for content in mes.content:
-#                     body.append(content.text.value)
-#                     # for a in content.text.annotations:
-#                     #     try:
-#                     #         document = self[a]
-#                     #     except LookupError:
-#                     #         continue
-#                     #     refn = citations.setdefault(document, len(citations) + 1)
-#                     #     body = body.replace(a.text, f" [{refn}]")
-
-#             self.client.beta.threads.messages.delete(
-#                 message_id=message.id,
-#                 thread_id=self.thread.id,
-#             )
-#             self.client.files.delete(self.document.id)
-#             self.client.beta.threads.delete(self.thread.id)
-#             self.client.beta.assistants.delete(self.assistant.id)
-#             return body
-#         # logger.error("%s (%d): %s", run.status, i + 1, run.last_error)
-
-#         # rest = math.ceil(self.parse_wait_time(run.last_error))
-#         # logger.warning("Sleeping %ds", rest)
-#         # time.sleep(rest)
 
 
 class AssistantMessage:
@@ -160,43 +84,54 @@ class OpenAIFileAssistant:
 
         raise TypeError(err.code)
 
-    def __init__(self, openai_key, file_path, instructions, retries=2, model="gpt-4o"):
+    def __init__(
+        self,
+        openai_key: str,
+        file_path: str = None,
+        instructions: str = None,
+        session_id: str = None,
+        retries=2,
+        model="gpt-4o",
+    ):
+        curr_session = None
+        if session_id:
+            curr_session: OpenAISessionState = FileSearchSession.get(session_id)
         self.retries = retries
-
         self.client = OpenAI(api_key=openai_key)
         self.parser = AssistantMessage(self.client)
 
-        # doesn't work; openai doesn't take bytes
-        # fp = io.StringIO(logs_text)
-        # fp = io.BytesIO(logs_text.encode())
-        # fp = Path("temp_file_name.txt").write_bytes(
-        #     io.BytesIO(logs_text.encode()).getbuffer().tobytes()
-        # )
-        # self.document = self.client.files.create(
-        #     file=file_path,
-        #     purpose="assistants",
-        # )
-
-        with Path(file_path).open("rb") as fp:
-            self.document = self.client.files.create(
-                file=fp,
-                purpose="assistants",
+        if curr_session:
+            logger.info(f"Resuming session {curr_session.id}")
+            self.document = self.client.files.retrieve(curr_session.document_id)
+            self.assistant = self.client.beta.assistants.retrieve(
+                curr_session.assistant_id
             )
-        self.assistant = self.client.beta.assistants.create(
-            model=model,
-            temperature=1e-6,
-            tools=self._tools,
-            instructions=instructions,
-        )
-        self.thread = self.client.beta.threads.create()
+            self.thread = self.client.beta.threads.retrieve(curr_session.thread_id)
+        else:
+            logger.info("Creating a new session")
+            with Path(file_path).open("rb") as fp:
+                self.document = self.client.files.create(
+                    file=fp,
+                    purpose="assistants",
+                )
+            self.assistant = self.client.beta.assistants.create(
+                model=model,
+                temperature=1e-6,
+                tools=self._tools,
+                instructions=instructions,
+            )
+            self.thread = self.client.beta.threads.create()
+            # create a new session
+            curr_session = OpenAISessionState(
+                id=str(uuid.uuid4()),
+                document_id=self.document.id,
+                thread_id=self.thread.id,
+                assistant_id=self.assistant.id,
+                local_fpath=file_path,
+            )
+            FileSearchSession.set(curr_session.id, curr_session)
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.client.files.delete(self.document.id)
-        self.client.beta.threads.delete(self.thread.id)
-        self.client.beta.assistants.delete(self.assistant.id)
+        self.session = curr_session
 
     def query(self, content):
         message = self.client.beta.threads.messages.create(
@@ -236,3 +171,11 @@ class OpenAIFileAssistant:
         )
 
         return self.parser.to_string(messages)
+
+    def close(self):
+        self.client.files.delete(self.document.id)
+        self.client.beta.threads.delete(self.thread.id)
+        self.client.beta.assistants.delete(self.assistant.id)
+        FileSearchSession.remove(self.session.id)
+        if self.session.local_fpath:
+            Path(self.session.local_fpath).unlink()

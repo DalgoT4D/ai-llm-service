@@ -1,12 +1,15 @@
 import os
+import uuid
 import logging
 import time
+from typing import Dict
 from pathlib import Path
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, UploadFile
 from celery import shared_task
 from celery.result import AsyncResult
 from config.constants import TMP_UPLOAD_DIR_NAME
+from src.file_search.session import FileSearchSession, OpenAISessionState
 
 
 from src.file_search.openai_assistant import OpenAIFileAssistant
@@ -31,21 +34,42 @@ def query_file(
     openai_key: str,
     assistant_prompt: str,
     queries: list[str],
+    session_id: str,
 ):
-    results = []
     try:
-        with OpenAIFileAssistant(
-            openai_key,
-            file_path,
-            assistant_prompt,
-        ) as fa:
-            for i, prompt in enumerate(queries):
-                logger.info("%s: %s", i, prompt)
-                response = fa.query(prompt)
-                logger.info(response)
-                results.append(response)
+        results = []
 
-        return results
+        fa = OpenAIFileAssistant(openai_key, file_path, assistant_prompt, session_id)
+        for i, prompt in enumerate(queries):
+            logger.info("%s: %s", i, prompt)
+            response = fa.query(prompt)
+            logger.info(response)
+            results.append(response)
+
+        logger.info(f"Results generated in the session {fa.session.id}")
+
+        return {"result": results, "session_id": fa.session.id}
+    except Exception as err:
+        logger.error(err)
+        if fa:
+            fa.close()
+        raise Exception(
+            f"something went wrong generating results in task {self.task_id}"
+        )
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=5,  # tasks will retry after 5, 10, 15... seconds
+    retry_kwargs={"max_retries": 3},
+    name="close_file_search_session",
+    logger=logging.getLogger(),
+)
+def close_file_search_session(self, openai_key, session_id: str):
+    try:
+        fa = OpenAIFileAssistant(openai_key, session_id=session_id)
+        fa.close()
     except Exception as err:
         logger.error(err)
         raise Exception(
@@ -54,9 +78,32 @@ def query_file(
 
 
 class FileQueryRequest(BaseModel):
-    file_path: str
-    assistant_prompt: str
     queries: list[str]
+    file_path: str = None
+    assistant_prompt: str = None
+    session_id: str = None
+
+
+@router.delete("/file/search/session/{session_id}")
+async def delete_file_search_session(session_id: str):
+    """
+    Deletes file search session
+    1. Deletes open ai resources (file, assistant, thread)
+    2. Deletes the tmp file stored in the service
+    3. Deletes the session from redis
+    """
+    try:
+        logger.info("Return the file search session")
+        task = close_file_search_session.apply_async(
+            kwargs={
+                "openai_key": os.getenv("OPENAI_API_KEY"),
+                "session_id": session_id,
+            }
+        )
+        return {"task_id": task.id}
+    except Exception as err:
+        logger.error(err)
+        raise HTTPException(status_code=500, detail="Failed to get the session")
 
 
 @router.post("/file/query")
@@ -69,6 +116,7 @@ async def post_query_file(payload: FileQueryRequest):
                 "openai_key": os.getenv("OPENAI_API_KEY"),
                 "assistant_prompt": payload.assistant_prompt,
                 "queries": payload.queries,
+                "session_id": payload.session_id,
             }
         )
         return {"task_id": task.id}
