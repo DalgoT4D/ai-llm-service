@@ -52,3 +52,15 @@ To run the `ai-llm-service` project, follow these steps:
     ```
 
 You can test the service by sending requests to the available endpoints.
+
+# Features supported
+
+## File search
+Currently the service supports the openai's file search but can be easily extended to other services. The request response flow here is as follows
+1. Client uploads a file (to query on) to the service.
+
+2. Client uses the `file_path` from 1. to query. Note the client needs to provided with a `system_prompt` or an `assistant_prompt`. Client can do multiple queries here
+
+3. Client polls for the response until the job/task reaches a terminal state.
+
+4. Client gets the result with a `session_id`. Client can either continue querying the same file or close the session
