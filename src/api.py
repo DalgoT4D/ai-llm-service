@@ -1,5 +1,4 @@
 import os
-import uuid
 import logging
 import time
 from typing import Dict
@@ -9,7 +8,6 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from celery import shared_task
 from celery.result import AsyncResult
 from config.constants import TMP_UPLOAD_DIR_NAME
-from src.file_search.session import FileSearchSession, OpenAISessionState
 
 
 from src.file_search.openai_assistant import OpenAIFileAssistant
@@ -53,9 +51,7 @@ def query_file(
         logger.error(err)
         if fa:
             fa.close()
-        raise Exception(
-            f"something went wrong generating results in task {self.task_id}"
-        )
+        raise Exception(str(err))
 
 
 @shared_task(
@@ -72,9 +68,7 @@ def close_file_search_session(self, openai_key, session_id: str):
         fa.close()
     except Exception as err:
         logger.error(err)
-        raise Exception(
-            f"something went wrong generating results in task {self.task_id}"
-        )
+        raise Exception(str(err))
 
 
 class FileQueryRequest(BaseModel):
@@ -151,5 +145,6 @@ def get_summarize_job(task_id):
         "id": task_id,
         "status": task_result.status,
         "result": task_result.result,
+        "error": str(task_result.info) if task_result.info else None,
     }
     return result
