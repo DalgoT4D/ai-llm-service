@@ -1,7 +1,7 @@
 import os
 import logging
 import time
-from typing import Dict
+from typing import Optional
 from pathlib import Path
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -34,6 +34,7 @@ def query_file(
     queries: list[str],
     session_id: str,
 ):
+    fa = None
     try:
         results = []
 
@@ -41,7 +42,6 @@ def query_file(
         for i, prompt in enumerate(queries):
             logger.info("%s: %s", i, prompt)
             response = fa.query(prompt)
-            logger.info(response)
             results.append(response)
 
         logger.info(f"Results generated in the session {fa.session.id}")
@@ -49,7 +49,7 @@ def query_file(
         return {"result": results, "session_id": fa.session.id}
     except Exception as err:
         logger.error(err)
-        if fa:
+        if fa and self.retries == self.max_retries:
             fa.close()
         raise Exception(str(err))
 
@@ -75,7 +75,7 @@ class FileQueryRequest(BaseModel):
     queries: list[str]
     file_path: str = None
     assistant_prompt: str = None
-    session_id: str = None
+    session_id: Optional[str] = None
 
 
 @router.delete("/file/search/session/{session_id}")
