@@ -93,4 +93,4 @@ async def home():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", port=7001, reload=False)
+    uvicorn.run("main:app", port=7001, reload=True, reload_dirs=["src", "config"])
