@@ -1,0 +1,69 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "6370:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - llm-network
+
+  fastapi:
+    build: .
+    restart: always
+    depends_on:
+      - redis
+    command: "uvicorn main:app --port 7001 --host 0.0.0.0 --reload --reload-dir src/ --reload-dir config/"
+    ports:
+      - "7001:7001"
+    environment:
+      - API_KEY=${API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - tmp_upload_shared:/app/tmp_uploads/
+    networks:
+      - llm-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  celery_worker:
+    container_name: celery_worker
+    build: .
+    command: celery -A main.celery worker -n llm -Q llm --loglevel=INFO
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - fastapi
+    volumes:
+      - tmp_upload_shared:/app/tmp_uploads/
+    networks:
+      - llm-network
+  flower:
+    container_name: flower
+    build: .
+    command: celery -A main.celery flower --port=5555
+    ports:
+      - 5556:5555
+    depends_on:
+      - fastapi
+      - redis
+      - celery_worker
+
+volumes:
+  redis_data:
+  tmp_upload_shared:
+
+
+networks:
+  llm-network:
+    driver: bridge
