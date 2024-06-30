@@ -64,3 +64,49 @@ Currently the service supports the openai's file search but can be easily extend
 3. Client polls for the response until the job/task reaches a terminal state.
 
 4. Client gets the result with a `session_id`. Client can either continue querying the same file or close the session
+
+## API
+
+All APIs are async and return a `task_id`.
+
+####  `GET` `/task/{task_id}`
+
+Used to fetch status of an async task
+
+Returns
+- `id`
+- `status`
+- `result`
+- `error`
+
+
+#### `POST` `/file/upload`
+
+Uploads a file to be queried against
+
+Request format
+- `filename`
+- `file` (bytes)
+
+
+####  `POST` `/file/query`
+
+Queries an uploaded file
+
+Request format
+- `file_path`
+- `assistant_prompt`
+- `queries` (list)
+- `session_id`
+
+Returns
+- `task_id`
+
+
+####  `DELETE` `/file/search/session/{session_id}`
+
+Closes a session
+
+Returns
+- `task_id`
+
