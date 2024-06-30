@@ -67,46 +67,4 @@ Currently the service supports the openai's file search but can be easily extend
 
 ## API
 
-All APIs are async and return a `task_id`.
-
-####  `GET` `/task/{task_id}`
-
-Used to fetch status of an async task
-
-Returns
-- `id`
-- `status`
-- `result`
-- `error`
-
-
-#### `POST` `/file/upload`
-
-Uploads a file to be queried against
-
-Request format
-- `filename`
-- `file` (bytes)
-
-
-####  `POST` `/file/query`
-
-Queries an uploaded file
-
-Request format
-- `file_path`
-- `assistant_prompt`
-- `queries` (list)
-- `session_id`
-
-Returns
-- `task_id`
-
-
-####  `DELETE` `/file/search/session/{session_id}`
-
-Closes a session
-
-Returns
-- `task_id`
-
+API documentation can be found at https://llm.projecttech4dev.org/docs
