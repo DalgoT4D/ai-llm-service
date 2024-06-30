@@ -2,10 +2,12 @@ import os
 import uvicorn
 from pathlib import Path
 import logging
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Depends, Security, status, HTTPException
+from fastapi.security import (
+    HTTPBearer,
+    APIKeyHeader,
+)
 from celery import Celery
-from starlette.middleware.base import BaseHTTPMiddleware
 from logging.config import dictConfig
 from dotenv import load_dotenv
 
@@ -62,16 +64,20 @@ dictConfig(
 )
 
 
-class CustomAuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Add your custom logic here
-        if request.headers.get("authorization") != os.getenv("API_KEY"):
-            logging.info("hi there")
-            return JSONResponse(status_code=401, content={"message": "Unauthorized"})
-        return await call_next(request)
-
-
 app = FastAPI()
+
+security = HTTPBearer()
+
+api_key_header = APIKeyHeader(name="Authorization")
+
+
+async def authenticate_user(api_key_header: str = Security(api_key_header)):
+    if api_key_header != os.getenv("API_KEY"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+        )
+    return {}
+
 
 # celery
 celery = Celery(
@@ -79,16 +85,16 @@ celery = Celery(
 )
 celery.config_from_object(CeleryConfig, namespace="CELERY")
 
-# middleware
-app.add_middleware(CustomAuthMiddleware)
-
 # routes
-app.include_router(text_summarization_router, prefix="/api")
+app.include_router(
+    text_summarization_router, prefix="/api", dependencies=[Depends(authenticate_user)]
+)
 
 
 # home route
 @app.get("/api")
-async def home():
+async def home(auth_user: dict = Depends(authenticate_user)):
+    print("here")
     return {"message": "Welcome to the T4D's AI/LLM service"}
 
 
