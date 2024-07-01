@@ -1,16 +1,18 @@
 import os
+import uuid
 import logging
 import time
 from typing import Optional
 from pathlib import Path
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, UploadFile, Form
 from celery import shared_task
 from celery.result import AsyncResult
 from config.constants import TMP_UPLOAD_DIR_NAME
 
 
 from src.file_search.openai_assistant import OpenAIFileAssistant
+from src.file_search.session import FileSearchSession, OpenAISessionState
 
 
 router = APIRouter()
@@ -120,18 +122,48 @@ async def post_query_file(payload: FileQueryRequest):
 
 
 @router.post("/file/upload")
-async def post_upload_knowledge_file(file: UploadFile):
+async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(None)):
+    """
+    Upload the document to query on.
+    Starts a session for the file search. Can upload multiple files to the same session.
+    All subsequent queries will be made via this session.
+    """
+
+    logger.info(f"Session id requested {session_id}")
+    session = None
+    if session_id:
+        logger.info("Fetching the current session")
+        session: OpenAISessionState = FileSearchSession.get(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    if not session:
+        logger.info("Creating a new session")
+        session = OpenAISessionState(
+            id=str(uuid.uuid4()),
+            document_id=None,
+            thread_id=None,
+            assistant_id=None,
+            local_fpaths=[],
+        )
+
+    if file is None:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
     try:
         logger.info("reading file contents")
-        if file is None:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        file_dir = Path(f"{TMP_UPLOAD_DIR_NAME}/{int(time.time())}")
+        # uploading the file to the tmp directory under a session_id
+        file_dir = Path(f"{TMP_UPLOAD_DIR_NAME}/{session.id}")
         file_dir.mkdir(parents=True, exist_ok=True)
-        with open(file_dir / file.filename, "wb") as buffer:
+        fpath = file_dir / file.filename
+        with open(fpath, "wb") as buffer:
             buffer.write(file.file.read())
 
-        # TODO: maybe tokenize here; so that we dont give back the bare path
-        return {"file_path": file_dir / file.filename}
+        # update the session
+        session.local_fpaths.append(str(fpath))
+        session = FileSearchSession.set(session.id, session)
+
+        return {"file_path": str(fpath), "session_id": session.id}
     except Exception as err:
         logger.error(err)
         raise HTTPException(status_code=500, detail="Internal Server Error")

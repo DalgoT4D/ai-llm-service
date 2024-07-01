@@ -1,5 +1,5 @@
 import json
-from typing import Dict
+from typing import Dict, Optional
 from pydantic import BaseModel
 
 from config.redis_client import RedisClient
@@ -7,18 +7,19 @@ from config.redis_client import RedisClient
 
 class OpenAISessionState(BaseModel):
     id: str
-    document_id: str
-    thread_id: str
-    assistant_id: str
-    local_fpath: str
+    local_fpaths: list[str]
+    document_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    assistant_id: Optional[str] = None
 
 
 class FileSearchSession:
     _redis_client = RedisClient.get_instance()
 
     @classmethod
-    def set(cls, key: str, value: OpenAISessionState) -> None:
+    def set(cls, key: str, value: OpenAISessionState) -> OpenAISessionState:
         cls._redis_client.set(key, json.dumps(value.model_dump()))
+        return value
 
     @classmethod
     def get(cls, key) -> OpenAISessionState:
