@@ -30,7 +30,6 @@ logger = logging.getLogger()
 )
 def query_file(
     self,
-    file_path: str,
     openai_key: str,
     assistant_prompt: str,
     queries: list[str],
@@ -40,7 +39,11 @@ def query_file(
     try:
         results = []
 
-        fa = OpenAIFileAssistant(openai_key, file_path, assistant_prompt, session_id)
+        fa = OpenAIFileAssistant(
+            openai_key,
+            session_id=session_id,
+            instructions=assistant_prompt,
+        )
         for i, prompt in enumerate(queries):
             logger.info("%s: %s", i, prompt)
             response = fa.query(prompt)
@@ -51,8 +54,6 @@ def query_file(
         return {"result": results, "session_id": fa.session.id}
     except Exception as err:
         logger.error(err)
-        if fa and self.retries == self.max_retries:
-            fa.close()
         raise Exception(str(err))
 
 
@@ -75,9 +76,8 @@ def close_file_search_session(self, openai_key, session_id: str):
 
 class FileQueryRequest(BaseModel):
     queries: list[str]
-    file_path: str = None
     assistant_prompt: str = None
-    session_id: Optional[str] = None
+    session_id: str
 
 
 @router.delete("/file/search/session/{session_id}")
@@ -104,29 +104,33 @@ async def delete_file_search_session(session_id: str):
 
 @router.post("/file/query")
 async def post_query_file(payload: FileQueryRequest):
-    try:
-        logger.info("Inside text summarization route")
-        task = query_file.apply_async(
-            kwargs={
-                "file_path": payload.file_path,
-                "openai_key": os.getenv("OPENAI_API_KEY"),
-                "assistant_prompt": payload.assistant_prompt,
-                "queries": payload.queries,
-                "session_id": payload.session_id,
-            }
-        )
-        return {"task_id": task.id}
-    except Exception as err:
-        logger.error(err)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+    if payload.queries is None or len(payload.queries) == 0:
+        raise HTTPException(status_code=400, detail="Input query is required")
+
+    session = FileSearchSession.get(payload.session_id)
+    logger.info("Session: %s", session)
+
+    if not payload.session_id or not session:
+        raise HTTPException(status_code=400, detail="Invalid session")
+
+    task = query_file.apply_async(
+        kwargs={
+            "openai_key": os.getenv("OPENAI_API_KEY"),
+            "assistant_prompt": payload.assistant_prompt,
+            "queries": payload.queries,
+            "session_id": session.id,
+        }
+    )
+    return {"task_id": task.id, "session_id": session.id}
 
 
 @router.post("/file/upload")
 async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(None)):
     """
-    Upload the document to query on.
-    Starts a session for the file search. Can upload multiple files to the same session.
-    All subsequent queries will be made via this session.
+    - Upload the document to query on.
+    - Starts a session for the file search. Can upload multiple files to the same session.
+    - All subsequent queries will be made via this session.
+    - Session becomes locked once the first query is made. No more files can be uploaded.
     """
 
     logger.info(f"Session id requested {session_id}")
@@ -141,10 +145,12 @@ async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(No
         logger.info("Creating a new session")
         session = OpenAISessionState(
             id=str(uuid.uuid4()),
-            document_id=None,
-            thread_id=None,
-            assistant_id=None,
             local_fpaths=[],
+        )
+
+    if session.status == "locked":
+        raise HTTPException(
+            status_code=400, detail="Session is locked, no more files can be uploaded"
         )
 
     if file is None:

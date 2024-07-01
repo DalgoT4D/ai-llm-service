@@ -1,16 +1,23 @@
 import json
 from typing import Dict, Optional
+from enum import Enum
 from pydantic import BaseModel
 
 from config.redis_client import RedisClient
 
 
+class SessionStatusEnum(str, Enum):
+    active = "active"
+    locked = "locked"  # once the session is queried for the first time, its becomes locked & no more file(s) can be uploaded
+
+
 class OpenAISessionState(BaseModel):
     id: str
     local_fpaths: list[str]
-    document_id: Optional[str] = None
+    document_ids: Optional[list[str]] = []
     thread_id: Optional[str] = None
     assistant_id: Optional[str] = None
+    status: SessionStatusEnum = SessionStatusEnum.active
 
 
 class FileSearchSession:
