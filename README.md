@@ -64,3 +64,7 @@ Currently the service supports the openai's file search but can be easily extend
 3. Client polls for the response until the job/task reaches a terminal state.
 
 4. Client gets the result with a `session_id`. Client can either continue querying the same file or close the session
+
+## API
+
+API documentation can be found at https://llm.projecttech4dev.org/docs
