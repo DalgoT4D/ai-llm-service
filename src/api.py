@@ -1,4 +1,5 @@
 import os
+import requests
 import uuid
 import logging
 import time
@@ -13,6 +14,7 @@ from config.constants import TMP_UPLOAD_DIR_NAME
 
 from src.file_search.openai_assistant import OpenAIFileAssistant
 from src.file_search.session import FileSearchSession, OpenAISessionState
+from src.custom_webhook import CustomWebhook, WebhookConfig
 
 
 router = APIRouter()
@@ -34,6 +36,7 @@ def query_file(
     assistant_prompt: str,
     queries: list[str],
     session_id: str,
+    webhook_config: Optional[dict] = None,
 ):
     fa = None
     try:
@@ -50,6 +53,13 @@ def query_file(
             results.append(response)
 
         logger.info(f"Results generated in the session {fa.session.id}")
+
+        if webhook_config:
+            webhook = CustomWebhook(WebhookConfig(**webhook_config))
+            logger.info(
+                f"Posting results to the webhook configured at {webhook.config.endpoint}"
+            )
+            webhook.post_result({"results": results, "session_id": fa.session.id})
 
         return {"result": results, "session_id": fa.session.id}
     except Exception as err:
@@ -78,6 +88,7 @@ class FileQueryRequest(BaseModel):
     queries: list[str]
     assistant_prompt: str = None
     session_id: str
+    webhook_config: Optional[WebhookConfig] = None
 
 
 @router.delete("/file/search/session/{session_id}")
@@ -119,6 +130,9 @@ async def post_query_file(payload: FileQueryRequest):
             "assistant_prompt": payload.assistant_prompt,
             "queries": payload.queries,
             "session_id": session.id,
+            "webhook_config": (
+                payload.webhook_config.model_dump() if payload.webhook_config else None
+            ),
         }
     )
     return {"task_id": task.id, "session_id": session.id}
