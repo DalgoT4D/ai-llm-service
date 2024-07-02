@@ -11,11 +11,17 @@ import io
 
 from openai import OpenAI
 from openai.types.beta.assistant import Assistant
+from openai.types.beta.thread import Thread
+from openai.types.file_object import FileObject
 from openai.types.beta.threads.message import Message
 from openai.types.beta.threads.annotation import Annotation
 import pandas as pd
 
-from src.file_search.session import OpenAISessionState, FileSearchSession
+from src.file_search.session import (
+    OpenAISessionState,
+    FileSearchSession,
+    SessionStatusEnum,
+)
 
 
 logger = logging.getLogger()
@@ -87,48 +93,60 @@ class OpenAIFileAssistant:
     def __init__(
         self,
         openai_key: str,
-        file_path: str = None,
+        session_id: str,
         instructions: str = None,
-        session_id: str = None,
         retries=2,
         model="gpt-4o",
     ):
-        curr_session = None
-        if session_id:
-            curr_session: OpenAISessionState = FileSearchSession.get(session_id)
+        curr_session: OpenAISessionState = FileSearchSession.get(session_id)
+        if not curr_session:
+            raise ValueError("Session not found")
         self.retries = retries
         self.client = OpenAI(api_key=openai_key)
         self.parser = AssistantMessage(self.client)
 
-        if curr_session:
-            logger.info(f"Resuming session {curr_session.id}")
-            self.document = self.client.files.retrieve(curr_session.document_id)
+        self.documents: list[FileObject] = []
+        if curr_session.status == SessionStatusEnum.locked:
+            logger.info(
+                f"Resuming session {curr_session.id}; retrieving references to openai & loading them in memory"
+            )
+            self.documents = [
+                self.client.files.retrieve(doc_id)
+                for doc_id in curr_session.document_ids
+            ]
             self.assistant = self.client.beta.assistants.retrieve(
                 curr_session.assistant_id
             )
             self.thread = self.client.beta.threads.retrieve(curr_session.thread_id)
         else:
-            logger.info("Creating a new session")
-            with Path(file_path).open("rb") as fp:
-                self.document = self.client.files.create(
-                    file=fp,
-                    purpose="assistants",
-                )
-            self.assistant = self.client.beta.assistants.create(
+            logger.info(
+                "Uploading documents to openai for the first time; setting the session to locked"
+            )
+            for file_path in curr_session.local_fpaths:
+                with Path(file_path).open("rb") as fp:
+                    uploaded_doc = self.client.files.create(
+                        file=fp,
+                        purpose="assistants",
+                    )
+                    self.documents.append(uploaded_doc)
+
+            curr_session.document_ids = [
+                uploaded_doc.id for uploaded_doc in self.documents
+            ]
+
+            self.assistant: Assistant = self.client.beta.assistants.create(
                 model=model,
                 temperature=1e-6,
                 tools=self._tools,
                 instructions=instructions,
             )
-            self.thread = self.client.beta.threads.create()
-            # create a new session
-            curr_session = OpenAISessionState(
-                id=str(uuid.uuid4()),
-                document_id=self.document.id,
-                thread_id=self.thread.id,
-                assistant_id=self.assistant.id,
-                local_fpath=file_path,
-            )
+            curr_session.assistant_id = self.assistant.id
+
+            self.thread: Thread = self.client.beta.threads.create()
+            curr_session.thread_id = self.thread.id
+
+            # update in redis
+            curr_session.status = SessionStatusEnum.locked
             FileSearchSession.set(curr_session.id, curr_session)
 
         self.session = curr_session
@@ -139,10 +157,7 @@ class OpenAIFileAssistant:
             role="user",
             content=content,
             attachments=[
-                {
-                    "tools": self._tools,
-                    "file_id": self.document.id,
-                }
+                {"tools": self._tools, "file_id": doc.id} for doc in self.documents
             ],
         )
 
@@ -173,9 +188,11 @@ class OpenAIFileAssistant:
         return self.parser.to_string(messages)
 
     def close(self):
-        self.client.files.delete(self.document.id)
+        for doc in self.documents:
+            self.client.files.delete(doc.id)
         self.client.beta.threads.delete(self.thread.id)
         self.client.beta.assistants.delete(self.assistant.id)
+        for local_fpath in self.session.local_fpaths:
+            Path(local_fpath).unlink()
+        # remove from redis
         FileSearchSession.remove(self.session.id)
-        if self.session.local_fpath:
-            Path(self.session.local_fpath).unlink()
