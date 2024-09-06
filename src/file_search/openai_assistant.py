@@ -3,6 +3,7 @@ import math
 import time
 import json
 import uuid
+from datetime import datetime
 from pathlib import Path
 from argparse import ArgumentParser
 from dataclasses import dataclass, asdict
@@ -96,7 +97,7 @@ class OpenAIFileAssistant:
         session_id: str,
         instructions: str = None,
         retries=2,
-        model="gpt-4o",
+        model="gpt-4o-mini",
     ):
         curr_session: OpenAISessionState = FileSearchSession.get(session_id)
         if not curr_session:
@@ -139,6 +140,7 @@ class OpenAIFileAssistant:
                 temperature=1e-6,
                 tools=self._tools,
                 instructions=instructions,
+                name=f"Dalgo_asst_{datetime.now().strftime('%y_%m_%d__%H_%M_%S')}",
             )
             curr_session.assistant_id = self.assistant.id
 
