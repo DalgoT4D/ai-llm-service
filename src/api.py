@@ -12,7 +12,7 @@ from celery.result import AsyncResult
 from config.constants import TMP_UPLOAD_DIR_NAME
 
 
-from src.file_search.openai_assistant import OpenAIFileAssistant
+from src.file_search.openai_assistant import OpenAIFileAssistant, SessionStatusEnum
 from src.file_search.session import FileSearchSession, OpenAISessionState
 from src.custom_webhook import CustomWebhook, WebhookConfig
 
@@ -163,7 +163,7 @@ async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(No
             local_fpaths=[],
         )
 
-    if session.status == "locked":
+    if session.status == SessionStatusEnum.locked:
         raise HTTPException(
             status_code=400, detail="Session is locked, no more files can be uploaded"
         )
@@ -183,6 +183,8 @@ async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(No
         # update the session
         session.local_fpaths.append(str(fpath))
         session = FileSearchSession.set(session.id, session)
+
+        logger.info("File uploaded successfully")
 
         return {"file_path": str(fpath), "session_id": session.id}
     except Exception as err:
