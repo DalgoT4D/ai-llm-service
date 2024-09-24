@@ -190,6 +190,7 @@ class OpenAIFileAssistant:
         return self.parser.to_string(messages)
 
     def close(self):
+        logger.info("Closing the session %s", self.session.id)
         for doc in self.documents:
             self.client.files.delete(doc.id)
         self.client.beta.threads.delete(self.thread.id)
