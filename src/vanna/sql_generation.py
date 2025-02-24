@@ -21,28 +21,41 @@ class CustomPG_VectorStore(PG_VectorStore):
         super().__init__(*args, **kwargs)
 
     def remove_all_training_data(self, **kwargs):
-        # Create the database engine
         engine = create_engine(self.connection_string)
 
-        # SQL DELETE statement
         delete_statement = text(
             """
             DELETE FROM langchain_pg_embedding
             """
         )
 
-        # Connect to the database and execute the delete statement
         with engine.connect() as connection:
-            # Start a transaction
             with connection.begin() as transaction:
                 try:
-                    result = connection.execute(delete_statement, {"id": id})
-                    # Commit the transaction if the delete was successful
+                    result = connection.execute(delete_statement)
                     transaction.commit()
-                    # Check if any row was deleted and return True or False accordingly
                     return result.rowcount > 0
                 except Exception as e:
-                    # Rollback the transaction in case of error
+                    logging.error(f"An error occurred: {e}")
+                    transaction.rollback()
+                    return False
+
+    def cnt_of_embeddings(self):
+        engine = create_engine(self.connection_string)
+
+        stmt = text(
+            """
+            SELECT count(*) FROM langchain_pg_embedding
+            """
+        )
+
+        with engine.connect() as connection:
+            with connection.begin() as transaction:
+                try:
+                    result = connection.execute(stmt)
+                    transaction.commit()
+                    return result.fetchone()[0]
+                except Exception as e:
                     logging.error(f"An error occurred: {e}")
                     transaction.rollback()
                     return False
@@ -139,3 +152,6 @@ class SqlGeneration:
     def remove_training_data(self):
         self.vanna.remove_all_training_data()
         return True
+
+    def is_trained(self) -> bool:
+        return self.vanna.cnt_of_embeddings() > 0

@@ -11,7 +11,12 @@ from src.celerytasks.vanna_rag_tasks import train_vanna_on_warehouse, ask_vanna_
 from src.file_search.openai_assistant import SessionStatusEnum
 from src.file_search.session import FileSearchSession, OpenAISessionState
 from src.file_search.schemas import FileQueryRequest
-from src.vanna.schemas import TrainVannaRequest, AskVannaRequest
+from src.vanna.schemas import (
+    TrainVannaRequest,
+    AskVannaRequest,
+    BaseVannaWarehouseConfig,
+)
+from src.vanna.sql_generation import SqlGeneration
 
 router = APIRouter()
 
@@ -155,9 +160,16 @@ async def post_train_vanna(payload: TrainVannaRequest):
 
 
 @router.post("/vanna/train/check")
-def post_train_vanna_health_check(task_id):
+def post_train_vanna_health_check(payload: BaseVannaWarehouseConfig):
     """Checks if the embeddings are generated or not for the warehouse"""
-    return 1
+    sql_generation_client = SqlGeneration(
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        pg_vector_creds=payload.pg_vector_creds,
+        warehouse_creds=payload.warehouse_creds,
+        warehouse_type=payload.warehouse_type,
+    )
+
+    return sql_generation_client.is_trained()
 
 
 @router.post("/vanna/ask")
