@@ -193,8 +193,10 @@ class OpenAIFileAssistant:
         logger.info("Closing the session %s", self.session.id)
         for doc in self.documents:
             self.client.files.delete(doc.id)
-        self.client.beta.threads.delete(self.thread.id)
-        self.client.beta.assistants.delete(self.assistant.id)
+        if self.thread.id:
+            self.client.beta.threads.delete(self.thread.id)
+        if self.assistant.id:
+            self.client.beta.assistants.delete(self.assistant.id)
         for local_fpath in self.session.local_fpaths:
             Path(local_fpath).unlink()
         # remove from redis
