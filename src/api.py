@@ -1,29 +1,21 @@
 import os
 import uuid
 import logging
-from typing import Optional
 from pathlib import Path
-from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, UploadFile, Form
-from celery.result import AsyncResult
+from celery.result import AsyncResult, states
 from config.constants import TMP_UPLOAD_DIR_NAME
 
 from src.celerytasks.file_search_tasks import close_file_search_session, query_file
+from src.celerytasks.vanna_rag_tasks import train_vanna_on_warehouse, ask_vanna_rag
 from src.file_search.openai_assistant import SessionStatusEnum
 from src.file_search.session import FileSearchSession, OpenAISessionState
-from src.utils.custom_webhook import WebhookConfig
-
+from src.file_search.schemas import FileQueryRequest
+from src.vanna.schemas import TrainVannaRequest, AskVannaRequest
 
 router = APIRouter()
 
 logger = logging.getLogger()
-
-
-class FileQueryRequest(BaseModel):
-    queries: list[str]
-    assistant_prompt: str = None
-    session_id: str
-    webhook_config: Optional[WebhookConfig] = None
 
 
 @router.delete("/file/search/session/{session_id}")
@@ -134,6 +126,50 @@ def get_summarize_job(task_id):
         "id": task_id,
         "status": task_result.status,
         "result": task_result.result,
-        "error": str(task_result.info) if task_result.info else None,
+        "error": (
+            str(task_result.info)
+            if task_result.info and task_result.status != states.SUCCESS
+            else None
+        ),
     }
     return result
+
+
+########################### vanna rag related ###########################
+
+
+@router.post("/vanna/train")
+async def post_train_vanna(payload: TrainVannaRequest):
+    """Train the vanna RAG against a warehouse for a defined training plan"""
+    task = train_vanna_on_warehouse.apply_async(
+        kwargs={
+            "openai_api_key": os.getenv("OPENAI_API_KEY"),
+            "pg_vector_creds": payload.pg_vector_creds.model_dump(),
+            "warehouse_creds": payload.warehouse_creds,
+            "training_sql": payload.training_sql,
+            "reset": payload.reset,
+            "warehouse_type": payload.warehouse_type.value,
+        }
+    )
+    return {"task_id": task.id}
+
+
+@router.post("/vanna/train/check")
+def post_train_vanna_health_check(task_id):
+    """Checks if the embeddings are generated or not for the warehouse"""
+    return 1
+
+
+@router.post("/vanna/ask")
+async def post_generate_sql(payload: AskVannaRequest):
+    """Run the question against the trained vanna RAG to generate a sql query"""
+    task = ask_vanna_rag.apply_async(
+        kwargs={
+            "openai_api_key": os.getenv("OPENAI_API_KEY"),
+            "pg_vector_creds": payload.pg_vector_creds.model_dump(),
+            "warehouse_creds": payload.warehouse_creds,
+            "warehouse_type": payload.warehouse_type.value,
+            "user_prompt": payload.user_prompt,
+        }
+    )
+    return {"task_id": task.id}

@@ -2,23 +2,53 @@ import os
 import tempfile
 import json
 from enum import Enum
+import logging
+from sqlalchemy import create_engine, text
 
+from openai import OpenAI
 from vanna.openai import OpenAI_Chat
 from vanna.pgvector import PG_VectorStore
-
 from langchain_openai import OpenAIEmbeddings
 
-
-class WarehouseType(str, Enum):
-    """
-    warehouse types available that vanna model can work with
-    """
-
-    POSTGRES = "postgres"
-    BIGQUERY = "bigquery"
+from src.vanna.schemas import PgVectorCreds, WarehouseType
 
 
-class CustomVannaClient(PG_VectorStore, OpenAI_Chat):
+logger = logging.getLogger()
+
+
+class CustomPG_VectorStore(PG_VectorStore):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def remove_all_training_data(self, **kwargs):
+        # Create the database engine
+        engine = create_engine(self.connection_string)
+
+        # SQL DELETE statement
+        delete_statement = text(
+            """
+            DELETE FROM langchain_pg_embedding
+            """
+        )
+
+        # Connect to the database and execute the delete statement
+        with engine.connect() as connection:
+            # Start a transaction
+            with connection.begin() as transaction:
+                try:
+                    result = connection.execute(delete_statement, {"id": id})
+                    # Commit the transaction if the delete was successful
+                    transaction.commit()
+                    # Check if any row was deleted and return True or False accordingly
+                    return result.rowcount > 0
+                except Exception as e:
+                    # Rollback the transaction in case of error
+                    logging.error(f"An error occurred: {e}")
+                    transaction.rollback()
+                    return False
+
+
+class CustomVannaClient(CustomPG_VectorStore, OpenAI_Chat):
     """
     Vanna client with pgvector as its backend and openai as the service provider
     All RAG related calls to talk vanna model will be made via this client
@@ -27,26 +57,20 @@ class CustomVannaClient(PG_VectorStore, OpenAI_Chat):
     def __init__(
         self,
         openai_api_key: str,
-        pg_vector_creds: dict,
+        pg_vector_creds: PgVectorCreds,
         openai_model: str = "gpt-4o-mini",
         initial_prompt: str = None,
     ):
-        pg_vector_db_keys = pg_vector_creds.keys()
-        if not all(
-            key in pg_vector_db_keys
-            for key in ["username", "password", "server", "port", "database"]
-        ):
-            raise ValueError("Invalid pg vector creds")
-
-        PG_VectorStore.__init__(
+        CustomPG_VectorStore.__init__(
             self,
             config={
-                "connection_string": "postgresql+psycopg://{username}:{password}@{server}:{port}/{database}".format(
-                    **pg_vector_creds
+                "connection_string": "postgresql+psycopg://{username}:{password}@{host}:{port}/{database}".format(
+                    **pg_vector_creds.model_dump()
                 ),
                 "embedding_function": OpenAIEmbeddings(),
             },
         )
+
         OpenAI_Chat.__init__(
             self,
             config={
@@ -59,10 +83,16 @@ class CustomVannaClient(PG_VectorStore, OpenAI_Chat):
 
 class SqlGeneration:
     def __init__(
-        self, pg_vector_creds: dict, warehouse_creds: dict, warehouse_type: str
+        self,
+        openai_api_key: str,
+        pg_vector_creds: PgVectorCreds,
+        warehouse_creds: dict,
+        warehouse_type: str,
     ):
+        os.environ["OPENAI_API_KEY"] = openai_api_key
+
         self.vanna = CustomVannaClient(
-            openai_api_key=os.getenv("OPENAI_API_KEY"), pg_vector_creds=pg_vector_creds
+            openai_api_key=openai_api_key, pg_vector_creds=pg_vector_creds
         )
         if warehouse_type == WarehouseType.POSTGRES:
             required_creds = {
@@ -107,5 +137,5 @@ class SqlGeneration:
         return True
 
     def remove_training_data(self):
-        self.vanna.remove_training_data()
+        self.vanna.remove_all_training_data()
         return True
