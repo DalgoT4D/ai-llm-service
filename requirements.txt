@@ -40,6 +40,7 @@ kaleido==0.2.1
 kombu==5.3.7
 langchain-core==0.3.37
 langchain-openai==0.3.6
+langchain-postgres==0.0.13
 langfuse==2.38.0
 langsmith==0.3.10
 markdown-it-py==3.0.0
@@ -52,9 +53,12 @@ openai==1.64.0
 orjson==3.10.5
 packaging==23.2
 pandas==2.2.2
+pgvector==0.3.6
 plotly==6.0.0
 prometheus_client==0.20.0
 prompt_toolkit==3.0.47
+psycopg==3.2.5
+psycopg-pool==3.2.5
 pydantic==2.7.4
 pydantic_core==2.18.4
 Pygments==2.18.0
