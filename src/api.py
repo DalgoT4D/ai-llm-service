@@ -1,88 +1,22 @@
 import os
-import requests
 import uuid
 import logging
-import time
 from typing import Optional
 from pathlib import Path
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, UploadFile, Form
-from celery import shared_task
 from celery.result import AsyncResult
 from config.constants import TMP_UPLOAD_DIR_NAME
 
-
-from src.file_search.openai_assistant import OpenAIFileAssistant, SessionStatusEnum
+from src.celerytasks.file_search_tasks import close_file_search_session, query_file
+from src.file_search.openai_assistant import SessionStatusEnum
 from src.file_search.session import FileSearchSession, OpenAISessionState
-from src.custom_webhook import CustomWebhook, WebhookConfig
+from src.utils.custom_webhook import WebhookConfig
 
 
 router = APIRouter()
 
 logger = logging.getLogger()
-
-
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=5,  # tasks will retry after 5, 10, 15... seconds
-    retry_kwargs={"max_retries": 3},
-    name="query_file",
-    logger=logging.getLogger(),
-)
-def query_file(
-    self,
-    openai_key: str,
-    assistant_prompt: str,
-    queries: list[str],
-    session_id: str,
-    webhook_config: Optional[dict] = None,
-):
-    fa = None
-    try:
-        results = []
-
-        fa = OpenAIFileAssistant(
-            openai_key,
-            session_id=session_id,
-            instructions=assistant_prompt,
-        )
-        for i, prompt in enumerate(queries):
-            logger.info("%s: %s", i, prompt)
-            response = fa.query(prompt)
-            results.append(response)
-
-        logger.info(f"Results generated in the session {fa.session.id}")
-
-        if webhook_config:
-            webhook = CustomWebhook(WebhookConfig(**webhook_config))
-            logger.info(
-                f"Posting results to the webhook configured at {webhook.config.endpoint}"
-            )
-            res = webhook.post_result({"results": results, "session_id": fa.session.id})
-            logger.info(f"Results posted to the webhook with res: {str(res)}")
-
-        return {"result": results, "session_id": fa.session.id}
-    except Exception as err:
-        logger.error(err)
-        raise Exception(str(err))
-
-
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=5,  # tasks will retry after 5, 10, 15... seconds
-    retry_kwargs={"max_retries": 3},
-    name="close_file_search_session",
-    logger=logging.getLogger(),
-)
-def close_file_search_session(self, openai_key, session_id: str):
-    try:
-        fa = OpenAIFileAssistant(openai_key, session_id=session_id)
-        fa.close()
-    except Exception as err:
-        logger.error(err)
-        raise Exception(str(err))
 
 
 class FileQueryRequest(BaseModel):
