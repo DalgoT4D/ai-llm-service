@@ -104,9 +104,6 @@ class SqlGeneration:
     ):
         os.environ["OPENAI_API_KEY"] = openai_api_key
 
-        self.vanna = CustomVannaClient(
-            openai_api_key=openai_api_key, pg_vector_creds=pg_vector_creds
-        )
         if warehouse_type == WarehouseType.POSTGRES:
             required_creds = {
                 "host": warehouse_creds["host"],
@@ -116,6 +113,9 @@ class SqlGeneration:
                 "password": warehouse_creds["password"],
             }
 
+            self.vanna = CustomVannaClient(
+                openai_api_key=openai_api_key, pg_vector_creds=pg_vector_creds
+            )
             self.vanna.connect_to_postgres(**required_creds)
         elif warehouse_type == WarehouseType.BIGQUERY:
             cred_file_path = None
@@ -125,6 +125,11 @@ class SqlGeneration:
                 json.dump(warehouse_creds, temp_file, indent=4)
                 cred_file_path = temp_file.name
 
+            self.vanna = CustomVannaClient(
+                openai_api_key=openai_api_key,
+                pg_vector_creds=pg_vector_creds,
+                initial_prompt="please include backticks for project names and table names if appropriate",
+            )
             self.vanna.connect_to_bigquery(
                 project_id=warehouse_creds["project_id"],
                 cred_file_path=cred_file_path,
