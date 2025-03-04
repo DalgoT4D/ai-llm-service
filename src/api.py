@@ -1,95 +1,26 @@
 import os
-import requests
 import uuid
 import logging
-import time
-from typing import Optional
 from pathlib import Path
-from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, UploadFile, Form
-from celery import shared_task
-from celery.result import AsyncResult
+from celery.result import AsyncResult, states
 from config.constants import TMP_UPLOAD_DIR_NAME
 
-
-from src.file_search.openai_assistant import OpenAIFileAssistant, SessionStatusEnum
+from src.celerytasks.file_search_tasks import close_file_search_session, query_file
+from src.celerytasks.vanna_rag_tasks import train_vanna_on_warehouse, ask_vanna_rag
+from src.file_search.openai_assistant import SessionStatusEnum
 from src.file_search.session import FileSearchSession, OpenAISessionState
-from src.custom_webhook import CustomWebhook, WebhookConfig
-
+from src.file_search.schemas import FileQueryRequest
+from src.vanna.schemas import (
+    TrainVannaRequest,
+    AskVannaRequest,
+    BaseVannaWarehouseConfig,
+)
+from src.vanna.sql_generation import SqlGeneration
 
 router = APIRouter()
 
 logger = logging.getLogger()
-
-
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=5,  # tasks will retry after 5, 10, 15... seconds
-    retry_kwargs={"max_retries": 3},
-    name="query_file",
-    logger=logging.getLogger(),
-)
-def query_file(
-    self,
-    openai_key: str,
-    assistant_prompt: str,
-    queries: list[str],
-    session_id: str,
-    webhook_config: Optional[dict] = None,
-):
-    fa = None
-    try:
-        results = []
-
-        fa = OpenAIFileAssistant(
-            openai_key,
-            session_id=session_id,
-            instructions=assistant_prompt,
-        )
-        for i, prompt in enumerate(queries):
-            logger.info("%s: %s", i, prompt)
-            response = fa.query(prompt)
-            results.append(response)
-
-        logger.info(f"Results generated in the session {fa.session.id}")
-
-        if webhook_config:
-            webhook = CustomWebhook(WebhookConfig(**webhook_config))
-            logger.info(
-                f"Posting results to the webhook configured at {webhook.config.endpoint}"
-            )
-            res = webhook.post_result({"results": results, "session_id": fa.session.id})
-            logger.info(f"Results posted to the webhook with res: {str(res)}")
-
-        return {"result": results, "session_id": fa.session.id}
-    except Exception as err:
-        logger.error(err)
-        raise Exception(str(err))
-
-
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=5,  # tasks will retry after 5, 10, 15... seconds
-    retry_kwargs={"max_retries": 3},
-    name="close_file_search_session",
-    logger=logging.getLogger(),
-)
-def close_file_search_session(self, openai_key, session_id: str):
-    try:
-        fa = OpenAIFileAssistant(openai_key, session_id=session_id)
-        fa.close()
-    except Exception as err:
-        logger.error(err)
-        raise Exception(str(err))
-
-
-class FileQueryRequest(BaseModel):
-    queries: list[str]
-    assistant_prompt: str = None
-    session_id: str
-    webhook_config: Optional[WebhookConfig] = None
 
 
 @router.delete("/file/search/session/{session_id}")
@@ -200,6 +131,57 @@ def get_summarize_job(task_id):
         "id": task_id,
         "status": task_result.status,
         "result": task_result.result,
-        "error": str(task_result.info) if task_result.info else None,
+        "error": (
+            str(task_result.info)
+            if task_result.info and task_result.status != states.SUCCESS
+            else None
+        ),
     }
     return result
+
+
+########################### vanna rag related ###########################
+
+
+@router.post("/vanna/train")
+async def post_train_vanna(payload: TrainVannaRequest):
+    """Train the vanna RAG against a warehouse for a defined training plan"""
+    task = train_vanna_on_warehouse.apply_async(
+        kwargs={
+            "openai_api_key": os.getenv("OPENAI_API_KEY"),
+            "pg_vector_creds": payload.pg_vector_creds.model_dump(),
+            "warehouse_creds": payload.warehouse_creds,
+            "training_sql": payload.training_sql,
+            "reset": payload.reset,
+            "warehouse_type": payload.warehouse_type.value,
+        }
+    )
+    return {"task_id": task.id}
+
+
+@router.post("/vanna/train/check")
+def post_train_vanna_health_check(payload: BaseVannaWarehouseConfig):
+    """Checks if the embeddings are generated or not for the warehouse"""
+    sql_generation_client = SqlGeneration(
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        pg_vector_creds=payload.pg_vector_creds,
+        warehouse_creds=payload.warehouse_creds,
+        warehouse_type=payload.warehouse_type,
+    )
+
+    return sql_generation_client.is_trained()
+
+
+@router.post("/vanna/ask")
+async def post_generate_sql(payload: AskVannaRequest):
+    """Run the question against the trained vanna RAG to generate a sql query"""
+    task = ask_vanna_rag.apply_async(
+        kwargs={
+            "openai_api_key": os.getenv("OPENAI_API_KEY"),
+            "pg_vector_creds": payload.pg_vector_creds.model_dump(),
+            "warehouse_creds": payload.warehouse_creds,
+            "warehouse_type": payload.warehouse_type.value,
+            "user_prompt": payload.user_prompt,
+        }
+    )
+    return {"task_id": task.id}
