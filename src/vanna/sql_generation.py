@@ -116,7 +116,7 @@ class SqlGeneration:
             self.vanna = CustomVannaClient(
                 openai_api_key=openai_api_key,
                 pg_vector_creds=pg_vector_creds,
-                initial_prompt="please include schema names in queries",
+                initial_prompt="Please qualify all table names with their schema names in the generated SQL",
             )
             self.vanna.connect_to_postgres(**required_creds)
         elif warehouse_type == WarehouseType.BIGQUERY:
