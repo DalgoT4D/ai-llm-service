@@ -15,7 +15,7 @@ services:
     restart: always
     depends_on:
       - redis
-    command: "uvicorn main:app --port 7001 --host 0.0.0.0 --reload --reload-dir src/ --reload-dir config/"
+    command: "uv run uvicorn main:app --port 7001 --host 0.0.0.0 --reload --reload-dir src/ --reload-dir config/"
     ports:
       - "7001:7001"
     environment:
@@ -35,7 +35,7 @@ services:
   celery_worker:
     container_name: celery_worker
     build: .
-    command: celery -A main.celery worker -n llm -Q llm --loglevel=INFO
+    command: uv run celery -A main.celery worker -n llm -Q llm --loglevel=INFO
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -51,7 +51,7 @@ services:
   flower:
     container_name: flower
     build: .
-    command: celery -A main.celery flower --port=5555
+    command: uv run celery -A main.celery flower --port=5555
     ports:
       - 5556:5555
     depends_on:

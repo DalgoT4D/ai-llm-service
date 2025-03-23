@@ -1,16 +1,14 @@
-FROM python:3.10
+FROM python:3.12-slim
 
-ENV PIP_DEFAULT_TIMEOUT=100 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+# Install uv.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
 # install dependencies
-COPY requirements.txt /app/
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml /app
+COPY uv.lock /app
+RUN uv sync --frozen --no-cache
 
 COPY /src /app/src
 COPY /config /app/config
