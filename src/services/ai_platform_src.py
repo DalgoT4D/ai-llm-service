@@ -5,7 +5,7 @@ import threading
 import openai
 
 from fastapi import UploadFile, HTTPException
-from src.utils.http_helper import http_post
+from src.utils.http_helper import http_post, http_get
 
 
 API_KEY = os.getenv("AI_PLATFORM_API_KEY")
@@ -158,3 +158,22 @@ def poll_thread_result(thread_id: str, interval: int = 5, timeout: int = 120) ->
         )
 
     return final_res.get("data", {}).get("response")
+
+
+def delete_document(document_id: str) -> bool:
+    """
+    Deletes a document from the external platform.
+
+    Args:
+        document_id (str): ID of the document to delete.
+    """
+    delete_url = f"{BASE_URI}/documents/remove/{document_id}"
+    res = http_get(delete_url, headers=HEADERS)
+
+    if not res.get("success", False):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete document {document_id}: {res.get('error')}",
+        )
+
+    return True

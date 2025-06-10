@@ -105,10 +105,14 @@ def query_file_v1(
     name="close_file_search_session",
     logger=logging.getLogger(),
 )
-def close_file_search_session(self, openai_key, session_id: str):
+def close_file_search_session(self, session_id: str):
     try:
-        fa = OpenAIFileAssistant(openai_key, session_id=session_id)
-        fa.close()
+        session = FileSearchSession.get(session_id)
+        logger.info("Session: %s", session)
+
+        for document_id in session.document_ids:
+            logger.info(f"Deleting document {document_id}")
+            ai_platform_src.delete_document(document_id)
     except Exception as err:
         logger.error(err)
         raise Exception(str(err))
@@ -133,7 +137,6 @@ async def delete_file_search_session(session_id: str):
         logger.info("Return the file search session")
         task = close_file_search_session.apply_async(
             kwargs={
-                "openai_key": os.getenv("OPENAI_API_KEY"),
                 "session_id": session_id,
             }
         )
@@ -215,16 +218,3 @@ async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(No
     except Exception as err:
         logger.error(err)
         raise HTTPException(status_code=500, detail="Internal Server Error")
-
-
-@router.get("/task/{task_id}")
-def get_summarize_job(task_id):
-    """Any queued task can be queried using this endpoint for results"""
-    task_result = AsyncResult(task_id)
-    result = {
-        "id": task_id,
-        "status": task_result.status,
-        "result": task_result.result,
-        "error": str(task_result.info) if task_result.info else None,
-    }
-    return result
