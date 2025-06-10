@@ -1,8 +1,6 @@
 import os
-import requests
 import uuid
 import logging
-import time
 from typing import Optional
 from pathlib import Path
 from pydantic import BaseModel
@@ -15,6 +13,7 @@ from config.constants import TMP_UPLOAD_DIR_NAME
 from src.file_search.openai_assistant import OpenAIFileAssistant, SessionStatusEnum
 from src.file_search.session import FileSearchSession, OpenAISessionState
 from src.custom_webhook import CustomWebhook, WebhookConfig
+from src.services import ai_platform_src
 
 
 router = APIRouter()
@@ -30,29 +29,59 @@ logger = logging.getLogger()
     name="query_file",
     logger=logging.getLogger(),
 )
-def query_file(
+def query_file_v1(
     self,
-    openai_key: str,
     assistant_prompt: str,
     queries: list[str],
     session_id: str,
     webhook_config: Optional[dict] = None,
 ):
-    fa = None
-    try:
-        results = []
+    # get the session
+    session = FileSearchSession.get(session_id)
+    logger.info("Session: %s", session)
 
-        fa = OpenAIFileAssistant(
-            openai_key,
-            session_id=session_id,
+    # create collection
+    collection_id = ai_platform_src.create_collection(
+        ai_platform_src.CollectionCreatePayload(
+            name=session_id,
             instructions=assistant_prompt,
+            documents=session.document_ids,
+            model="gpt-4o",
+            temperature=0.000001,
+            batch_size=1,
+            callback_url=None,
         )
-        for i, prompt in enumerate(queries):
-            logger.info("%s: %s", i, prompt)
-            response = fa.query(prompt)
-            results.append(response)
+    )
+    logger.info("Collection created successfully")
 
-        logger.info(f"Results generated in the session {fa.session.id}")
+    # wait till the collection is created
+    collection: dict = ai_platform_src.poll_collection_creation(
+        collection_id=collection_id
+    )
+    if not collection:
+        logger.error("Collection creation failed")
+        raise HTTPException(
+            status_code=500, detail="Collection creation failed; something went wrong"
+        )
+
+    results = []
+
+    for i, prompt in enumerate(queries):
+        # start a thread with the query
+        thread_id = ai_platform_src.create_and_start_thread(
+            ai_platform_src.CreateAndStartThreadPayload(
+                query=prompt,
+                assistant_id=collection["llm_service_id"],
+                remove_citation=True,
+            )
+        )
+        logger.info("Thread created successfully with ID: %s", thread_id)
+
+        response = ai_platform_src.poll_thread_result(thread_id=thread_id)
+
+        results.append(response)
+
+    try:
 
         if webhook_config:
             webhook = CustomWebhook(WebhookConfig(**webhook_config))
@@ -62,7 +91,7 @@ def query_file(
             res = webhook.post_result({"results": results, "session_id": fa.session.id})
             logger.info(f"Results posted to the webhook with res: {str(res)}")
 
-        return {"result": results, "session_id": fa.session.id}
+        return {"result": results, "session_id": session_id}
     except Exception as err:
         logger.error(err)
         raise Exception(str(err))
@@ -125,9 +154,8 @@ async def post_query_file(payload: FileQueryRequest):
     if not payload.session_id or not session:
         raise HTTPException(status_code=400, detail="Invalid session")
 
-    task = query_file.apply_async(
+    task = query_file_v1.apply_async(
         kwargs={
-            "openai_key": os.getenv("OPENAI_API_KEY"),
             "assistant_prompt": payload.assistant_prompt,
             "queries": payload.queries,
             "session_id": session.id,
@@ -173,20 +201,17 @@ async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(No
 
     try:
         logger.info("reading file contents")
-        # uploading the file to the tmp directory under a session_id
-        file_dir = Path(f"{TMP_UPLOAD_DIR_NAME}/{session.id}")
-        file_dir.mkdir(parents=True, exist_ok=True)
-        fpath = file_dir / file.filename
-        with open(fpath, "wb") as buffer:
-            buffer.write(file.file.read())
+        # uploading the file
+        document_id = ai_platform_src.upload_document(file)
+
+        session.document_ids.append(document_id)
 
         # update the session
-        session.local_fpaths.append(str(fpath))
         session = FileSearchSession.set(session.id, session)
 
         logger.info("File uploaded successfully")
 
-        return {"file_path": str(fpath), "session_id": session.id}
+        return {"file_id": document_id, "session_id": session.id}
     except Exception as err:
         logger.error(err)
         raise HTTPException(status_code=500, detail="Internal Server Error")

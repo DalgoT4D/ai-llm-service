@@ -11,7 +11,8 @@ from celery import Celery
 from logging.config import dictConfig
 from dotenv import load_dotenv
 
-from src.api import router as text_summarization_router
+from src.apis.api import router as text_summarization_router
+from src.apis.api_v1 import router as text_summarization_router_v1
 from config.celery_config import CeleryConfig
 from config.constants import TMP_UPLOAD_DIR_NAME, LOGS_DIR_NAME
 
@@ -88,6 +89,9 @@ celery.config_from_object(CeleryConfig, namespace="CELERY")
 # routes
 app.include_router(
     text_summarization_router, prefix="/api", dependencies=[Depends(authenticate_user)]
+)
+app.include_router(
+    text_summarization_router_v1, prefix="/api/v1", dependencies=[Depends(authenticate_user)]
 )
 
 
