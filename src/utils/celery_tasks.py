@@ -103,6 +103,9 @@ def close_file_search_session_v1(self, session_id: str):
         session = FileSearchSession.get(session_id)
         logger.info("Session: %s", session)
 
+        if not session:
+            raise Exception("Invalid session")
+
         for document_id in session.document_ids:
             logger.info(f"Deleting document {document_id}")
             ai_platform_src.delete_document(document_id)
