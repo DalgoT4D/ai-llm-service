@@ -81,7 +81,7 @@ def query_file_v1(
             logger.info(
                 f"Posting results to the webhook configured at {webhook.config.endpoint}"
             )
-            res = webhook.post_result({"results": results, "session_id": fa.session.id})
+            res = webhook.post_result({"results": results, "session_id": session_id})
             logger.info(f"Results posted to the webhook with res: {str(res)}")
 
         return {"result": results, "session_id": session_id}
