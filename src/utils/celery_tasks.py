@@ -33,6 +33,9 @@ def query_file_v1(
         session = FileSearchSession.get(session_id)
         logger.info("Session: %s", session)
 
+        if not session:
+            raise Exception("Invalid session")
+
         # create collection
         collection_id = ai_platform_src.create_collection(
             ai_platform_src.CollectionCreatePayload(
