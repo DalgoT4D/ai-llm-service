@@ -5,117 +5,18 @@ from typing import Optional
 from pathlib import Path
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, UploadFile, Form
-from celery import shared_task
-from celery.result import AsyncResult
-from config.constants import TMP_UPLOAD_DIR_NAME
 
 
-from src.file_search.openai_assistant import OpenAIFileAssistant, SessionStatusEnum
+from src.file_search.openai_assistant import SessionStatusEnum
 from src.file_search.session import FileSearchSession, OpenAISessionState
-from src.custom_webhook import CustomWebhook, WebhookConfig
+from src.custom_webhook import WebhookConfig
 from src.services import ai_platform_src
+from src.utils.celery_tasks import query_file_v1, close_file_search_session_v1
 
 
 router = APIRouter()
 
 logger = logging.getLogger()
-
-
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=5,  # tasks will retry after 5, 10, 15... seconds
-    retry_kwargs={"max_retries": 3},
-    name="query_file",
-    logger=logging.getLogger(),
-)
-def query_file_v1(
-    self,
-    assistant_prompt: str,
-    queries: list[str],
-    session_id: str,
-    webhook_config: Optional[dict] = None,
-):
-    # get the session
-    session = FileSearchSession.get(session_id)
-    logger.info("Session: %s", session)
-
-    # create collection
-    collection_id = ai_platform_src.create_collection(
-        ai_platform_src.CollectionCreatePayload(
-            name=session_id,
-            instructions=assistant_prompt,
-            documents=session.document_ids,
-            model="gpt-4o",
-            temperature=0.000001,
-            batch_size=1,
-            callback_url=None,
-        )
-    )
-    logger.info("Collection created successfully")
-
-    # wait till the collection is created
-    collection: dict = ai_platform_src.poll_collection_creation(
-        collection_id=collection_id
-    )
-    if not collection:
-        logger.error("Collection creation failed")
-        raise HTTPException(
-            status_code=500, detail="Collection creation failed; something went wrong"
-        )
-
-    results = []
-
-    for i, prompt in enumerate(queries):
-        # start a thread with the query
-        thread_id = ai_platform_src.create_and_start_thread(
-            ai_platform_src.CreateAndStartThreadPayload(
-                query=prompt,
-                assistant_id=collection["llm_service_id"],
-                remove_citation=True,
-            )
-        )
-        logger.info("Thread created successfully with ID: %s", thread_id)
-
-        response = ai_platform_src.poll_thread_result(thread_id=thread_id)
-
-        results.append(response)
-
-    try:
-
-        if webhook_config:
-            webhook = CustomWebhook(WebhookConfig(**webhook_config))
-            logger.info(
-                f"Posting results to the webhook configured at {webhook.config.endpoint}"
-            )
-            res = webhook.post_result({"results": results, "session_id": fa.session.id})
-            logger.info(f"Results posted to the webhook with res: {str(res)}")
-
-        return {"result": results, "session_id": session_id}
-    except Exception as err:
-        logger.error(err)
-        raise Exception(str(err))
-
-
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=5,  # tasks will retry after 5, 10, 15... seconds
-    retry_kwargs={"max_retries": 3},
-    name="close_file_search_session",
-    logger=logging.getLogger(),
-)
-def close_file_search_session(self, session_id: str):
-    try:
-        session = FileSearchSession.get(session_id)
-        logger.info("Session: %s", session)
-
-        for document_id in session.document_ids:
-            logger.info(f"Deleting document {document_id}")
-            ai_platform_src.delete_document(document_id)
-    except Exception as err:
-        logger.error(err)
-        raise Exception(str(err))
 
 
 class FileQueryRequest(BaseModel):
@@ -135,7 +36,7 @@ async def delete_file_search_session(session_id: str):
     """
     try:
         logger.info("Return the file search session")
-        task = close_file_search_session.apply_async(
+        task = close_file_search_session_v1.apply_async(
             kwargs={
                 "session_id": session_id,
             }
@@ -156,6 +57,8 @@ async def post_query_file(payload: FileQueryRequest):
 
     if not payload.session_id or not session:
         raise HTTPException(status_code=400, detail="Invalid session")
+
+    logger.info("Starting the file query task")
 
     task = query_file_v1.apply_async(
         kwargs={
@@ -214,7 +117,7 @@ async def post_upload_knowledge_file(file: UploadFile, session_id: str = Form(No
 
         logger.info("File uploaded successfully")
 
-        return {"file_id": document_id, "session_id": session.id}
+        return {"file_path": document_id, "session_id": session.id}
     except Exception as err:
         logger.error(err)
         raise HTTPException(status_code=500, detail="Internal Server Error")

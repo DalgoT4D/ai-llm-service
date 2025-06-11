@@ -1,32 +1,41 @@
 import os
+import logging
 from pydantic import BaseModel
 import time
-import threading
-import openai
+from typing import Optional
 
 from fastapi import UploadFile, HTTPException
 from src.utils.http_helper import http_post, http_get
 
+logger = logging.getLogger()
 
 API_KEY = os.getenv("AI_PLATFORM_API_KEY")
 BASE_URI = os.getenv("AI_PLATFORM_BASE_URI")
 HEADERS = {"x-api-key": f"ApiKey {API_KEY}"}
 
+if not BASE_URI:
+    raise HTTPException(
+        status_code=500,
+        detail="AI Platform base URI is not configured. Please set the AI_PLATFORM_BASE_URI environment variable.",
+    )
+
 
 class CollectionCreatePayload(BaseModel):
-    name: str
     instructions: str
     documents: list[str] = []
     model: str = "gpt-4o"
     temperature: float = 0.000001
     batch_size: int = 1
-    callback_url: str = None
+
+    class Config:
+        extra = "allow"
 
 
 class CreateAndStartThreadPayload(BaseModel):
-    query: str
+    question: str
     assistant_id: str
     remove_citation: bool = True
+    thread_id: Optional[str] = None
 
 
 def upload_document(file: UploadFile) -> str:
@@ -42,8 +51,9 @@ def upload_document(file: UploadFile) -> str:
 
     upload_url = f"{BASE_URI}/documents/upload"
 
-    # Use file.file (a file-like object), file.filename, and file.content_type
-    files = {"src": (file.filename, file.file, file.content_type)}
+    # Ensure content_type is set, fallback to 'application/octet-stream' if None
+    content_type = file.content_type or "application/octet-stream"
+    files = {"src": (file.filename, file.file, content_type)}
     res = http_post(upload_url, files=files, headers=HEADERS)
 
     return res["data"]["id"]
@@ -54,9 +64,7 @@ def create_collection(payload: CollectionCreatePayload) -> str:
     Creates a collection on the external platform.
 
     Args:
-        collection_name (str): Name of the collection to create.
-        api_key (str, optional): API key for authentication, if required.
-        metadata (dict, optional): Additional metadata for the collection.
+        payload (CollectionCreatePayload): The payload for the API call.
 
     Returns:
         str: The collection ID of the newly created collection.
@@ -67,7 +75,7 @@ def create_collection(payload: CollectionCreatePayload) -> str:
 
 
 def poll_collection_creation(
-    collection_id: str, interval: int = 5, timeout: int = 120
+    collection_id: str, interval: int = 30, timeout: int = 120
 ) -> dict:
     """
     Polls the collection creation status.
@@ -86,6 +94,7 @@ def poll_collection_creation(
     poll_res = None
     final_res = None
     while True:
+        time.sleep(interval)
         poll_res = http_post(status_url, headers=HEADERS)
 
         if poll_res.get("success", False) and poll_res.get("data", {}).get("id", None):
@@ -93,7 +102,6 @@ def poll_collection_creation(
             break
         if time.time() - start_time > timeout:
             break
-        time.sleep(interval)
 
     if not final_res:
         raise HTTPException(
@@ -114,13 +122,12 @@ def create_and_start_thread(payload: CreateAndStartThreadPayload) -> str:
     Returns:
         thread_id (str): The ID of the thread created on the external platform.
     """
-
     thread_url = f"{BASE_URI}/threads/start"
     res = http_post(thread_url, json=payload.model_dump(), headers=HEADERS)
     return res["data"]["thread_id"]
 
 
-def poll_thread_result(thread_id: str, interval: int = 5, timeout: int = 120) -> str:
+def poll_thread_result(thread_id: str, interval: int = 30, timeout: int = 120) -> str:
     """
     Polls the thread result status.
 
@@ -138,7 +145,8 @@ def poll_thread_result(thread_id: str, interval: int = 5, timeout: int = 120) ->
     poll_res = None
     final_res = None
     while True:
-        poll_res = http_post(status_url, headers=HEADERS)
+        time.sleep(interval)
+        poll_res = http_get(status_url, headers=HEADERS)
 
         # Adjust the condition below based on your API's response structure
         if (
@@ -149,7 +157,6 @@ def poll_thread_result(thread_id: str, interval: int = 5, timeout: int = 120) ->
             break
         if time.time() - start_time > timeout:
             break
-        time.sleep(interval)
 
     if not final_res:
         raise HTTPException(

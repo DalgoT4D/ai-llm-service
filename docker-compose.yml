@@ -25,6 +25,8 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_PLATFORM_API_KEY=${AI_PLATFORM_API_KEY}
+      - AI_PLATFORM_BASE_URI=${AI_PLATFORM_BASE_URI}
     volumes:
       - tmp_upload_shared:/app/tmp_uploads/
     networks:
@@ -41,6 +43,8 @@ services:
       - REDIS_PORT=6379
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - AI_PLATFORM_API_KEY=${AI_PLATFORM_API_KEY}
+      - AI_PLATFORM_BASE_URI=${AI_PLATFORM_BASE_URI}
     depends_on:
       - redis
       - fastapi
