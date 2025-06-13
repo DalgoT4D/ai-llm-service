@@ -11,6 +11,8 @@ logger = logging.getLogger()
 
 API_KEY = os.getenv("AI_PLATFORM_API_KEY")
 BASE_URI = os.getenv("AI_PLATFORM_BASE_URI")
+POLLING_INTERVAL = int(os.getenv("AI_PLATFORM_POLLING_INTERVAL", 5))
+TIMEOUT = int(os.getenv("AI_PLATFORM_REQUEST_TIMEOUT_SECS", 120))
 HEADERS = {"x-api-key": f"ApiKey {API_KEY}"}
 
 if not BASE_URI:
@@ -75,7 +77,7 @@ def create_collection(payload: CollectionCreatePayload) -> str:
 
 
 def poll_collection_creation(
-    collection_id: str, interval: int = 30, timeout: int = 120
+    collection_id: str,
 ) -> dict:
     """
     Polls the collection creation status.
@@ -90,6 +92,9 @@ def poll_collection_creation(
     """
     status_url = f"{BASE_URI}/collections/info/{collection_id}"
     start_time = time.time()
+
+    interval = POLLING_INTERVAL
+    timeout = TIMEOUT
 
     poll_res = None
     final_res = None
@@ -141,6 +146,9 @@ def poll_thread_result(thread_id: str, interval: int = 30, timeout: int = 120) -
     """
     status_url = f"{BASE_URI}/threads/result/{thread_id}"
     start_time = time.time()
+
+    interval = POLLING_INTERVAL
+    timeout = TIMEOUT
 
     poll_res = None
     final_res = None
