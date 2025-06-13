@@ -19,3 +19,6 @@ class CeleryConfig:
     )
     CELERY_TASK_ROUTES = (route_task,)
     broker_connection_retry_on_startup = True
+
+    # Instead, use autodiscover_tasks in your Celery app initialization (main.py or celery.py):
+    # celery.autodiscover_tasks(['src.apis'])
