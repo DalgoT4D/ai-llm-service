@@ -102,6 +102,14 @@ app.include_router(
 )
 
 
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint to verify if the service is running.
+    """
+    return {"status": "ok"}
+
+
 # home route
 @app.get("/api")
 async def home(auth_user: dict = Depends(authenticate_user)):

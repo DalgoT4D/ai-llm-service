@@ -9,6 +9,11 @@ services:
       - redis_data:/data
     networks:
       - llm-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   fastapi:
     build: .
@@ -29,6 +34,12 @@ services:
       - AI_PLATFORM_BASE_URI=${AI_PLATFORM_BASE_URI}
       - AI_PLATFORM_POLLING_INTERVAL_SECS=${AI_PLATFORM_POLLING_INTERVAL_SECS}
       - AI_PLATFORM_REQUEST_TIMEOUT_SECS=${AI_PLATFORM_REQUEST_TIMEOUT_SECS}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     volumes:
       - tmp_upload_shared:/app/tmp_uploads/
     networks:
