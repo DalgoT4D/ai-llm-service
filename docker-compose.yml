@@ -50,8 +50,10 @@ services:
       - AI_PLATFORM_POLLING_INTERVAL_SECS=${AI_PLATFORM_POLLING_INTERVAL_SECS}
       - AI_PLATFORM_REQUEST_TIMEOUT_SECS=${AI_PLATFORM_REQUEST_TIMEOUT_SECS}
     depends_on:
-      - redis
-      - fastapi
+      redis:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
     volumes:
       - tmp_upload_shared:/app/tmp_uploads/
     networks:
@@ -63,9 +65,12 @@ services:
     ports:
       - 5556:5555
     depends_on:
-      - fastapi
-      - redis
-      - celery_worker
+      redis:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+      celery_worker:
+        condition: service_healthy
 
 volumes:
   redis_data:
