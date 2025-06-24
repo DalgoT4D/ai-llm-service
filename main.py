@@ -103,7 +103,7 @@ app.include_router(
 
 
 @app.get("/health")
-async def health_check():
+def health_check():
     """
     Health check endpoint to verify if the service is running.
     """
