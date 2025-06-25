@@ -9,6 +9,11 @@ services:
       - redis_data:/data
     networks:
       - llm-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   fastapi:
     build: .
@@ -60,11 +65,20 @@ services:
     container_name: flower
     build: .
     command: uv run celery -A main.celery flower --port=5555
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - AI_PLATFORM_API_KEY=${AI_PLATFORM_API_KEY}
+      - AI_PLATFORM_BASE_URI=${AI_PLATFORM_BASE_URI}
+      - AI_PLATFORM_POLLING_INTERVAL_SECS=${AI_PLATFORM_POLLING_INTERVAL_SECS}
+      - AI_PLATFORM_REQUEST_TIMEOUT_SECS=${AI_PLATFORM_REQUEST_TIMEOUT_SECS}
     ports:
       - 5556:5555
     depends_on:
-      - fastapi
       - redis
+      - fastapi
       - celery_worker
 
 volumes:

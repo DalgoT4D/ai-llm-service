@@ -102,7 +102,7 @@ def poll_collection_creation(
         time.sleep(interval)
         poll_res = http_post(status_url, headers=HEADERS)
 
-        if poll_res.get("success", False) and poll_res.get("data", {}).get("id", None):
+        if poll_res.get("data", {}).get("status") != "processing":
             final_res = poll_res
             break
         if time.time() - start_time > timeout:
@@ -157,10 +157,7 @@ def poll_thread_result(thread_id: str, interval: int = 30, timeout: int = 120) -
         poll_res = http_get(status_url, headers=HEADERS)
 
         # Adjust the condition below based on your API's response structure
-        if (
-            poll_res.get("success", False)
-            and poll_res.get("data", {}).get("status") == "completed"
-        ):
+        if poll_res.get("data", {}).get("status") != "processing":
             final_res = poll_res
             break
         if time.time() - start_time > timeout:
