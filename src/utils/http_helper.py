@@ -46,3 +46,21 @@ def http_get(endpoint: str, **kwargs) -> dict:
         logger.exception(error)
         raise HTTPException(res.status_code, res.text) from error
     return res.json()
+
+
+def http_delete(endpoint: str, **kwargs) -> dict:
+    """make a DELETE request"""
+    headers = kwargs.pop("headers", {})
+    timeout = kwargs.pop("timeout", None)
+
+    try:
+        res = requests.delete(endpoint, headers=headers, timeout=timeout, **kwargs)
+    except Exception as error:
+        logger.exception(error)
+        raise HTTPException(500, "connection error") from error
+    try:
+        res.raise_for_status()
+    except Exception as error:
+        logger.exception(error)
+        raise HTTPException(res.status_code, res.text) from error
+    return res.json()
