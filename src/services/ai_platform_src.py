@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from fastapi import UploadFile, HTTPException
-from src.utils.http_helper import http_post, http_get
+from src.utils.http_helper import http_post, http_get, http_delete
 
 logger = logging.getLogger()
 
@@ -180,7 +180,7 @@ def delete_document(document_id: str) -> bool:
         document_id (str): ID of the document to delete.
     """
     delete_url = f"{BASE_URI}/documents/remove/{document_id}"
-    res = http_get(delete_url, headers=HEADERS)
+    res = http_delete(delete_url, headers=HEADERS)
 
     if not res.get("success", False):
         raise HTTPException(
