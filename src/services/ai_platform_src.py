@@ -69,52 +69,66 @@ def create_collection(payload: CollectionCreatePayload) -> str:
         payload (CollectionCreatePayload): The payload for the API call.
 
     Returns:
-        str: The collection ID of the newly created collection.
+        str: The job ID of the collection creation in progress.
     """
     create_collection_url = f"{BASE_URI}/collections/create"
     res = http_post(create_collection_url, json=payload.model_dump(), headers=HEADERS)
-    return res["metadata"]["key"]
+    return res["data"]["id"]
 
 
-def poll_collection_creation(
-    collection_id: str,
-) -> dict:
+def poll_collection_job_status(job_id: str) -> dict:
     """
-    Polls the collection creation status.
+    Polls the collection job status.
 
     Args:
-        collection_id (str): ID of the collection to poll.
-        interval (int): Polling interval in seconds.
-        timeout (int): Maximum time to poll in seconds.
+        job_id (str): ID of the job to poll.
 
     Returns:
-        dict: The JSON response having the collection details.
+        dict: The JSON response having the job details.
     """
-    status_url = f"{BASE_URI}/collections/info/{collection_id}"
+    status_url = f"{BASE_URI}/collections/info/jobs/{job_id}"
+    final_res = http_get(status_url, headers=HEADERS)
+
+    timeout = TIMEOUT
     start_time = time.time()
 
-    interval = POLLING_INTERVAL
-    timeout = TIMEOUT
-
-    poll_res = None
-    final_res = None
     while True:
-        time.sleep(interval)
-        poll_res = http_post(status_url, headers=HEADERS)
-
-        if poll_res.get("data", {}).get("status") != "processing":
-            final_res = poll_res
+        if final_res.get("data", {}).get("status") not in ["PENDING", "PROCESSING"]:
             break
+
+        time.sleep(POLLING_INTERVAL)
+        final_res = http_get(status_url, headers=HEADERS)
+
         if time.time() - start_time > timeout:
             break
 
     if not final_res:
         raise HTTPException(
             status_code=500,
-            detail=f"Collection creation timed out after {timeout} seconds. Last response: {final_res.get('error')}",
+            detail=f"Something went wrong while polling collection job status for job ID {job_id}. Couldn't fetch the response",
         )
 
-    return final_res.get("data", {})
+    elif final_res.get("data", {}).get("status") in ["PENDING", "PROCESSING"]:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Collection job polling timed out after {timeout} seconds",
+        )
+    
+    elif final_res.get("data", {}).get("status") == "FAILED":
+        raise HTTPException(
+            status_code=500,
+            detail=f"Collection job failed: {final_res.get('error_message')}",
+        )
+    
+    elif final_res.get("success") is False:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch collection job status for job ID {job_id}: {final_res.get('error')}",
+        )
+    
+    logger.info(final_res)
+
+    return final_res.get("data", {}).get("collection", {}) 
 
 
 def create_and_start_thread(payload: CreateAndStartThreadPayload) -> str:

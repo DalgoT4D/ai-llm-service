@@ -37,7 +37,7 @@ def query_file_v1(
             raise Exception("Invalid session")
 
         # create collection
-        collection_id = ai_platform_src.create_collection(
+        job_id = ai_platform_src.create_collection(
             ai_platform_src.CollectionCreatePayload(
                 instructions=assistant_prompt,
                 documents=session.document_ids,
@@ -48,10 +48,9 @@ def query_file_v1(
         )
 
         # wait till the collection is created
-        collection: dict = ai_platform_src.poll_collection_creation(
-            collection_id=collection_id
-        )
+        collection: dict = ai_platform_src.poll_collection_job_status(job_id)
         if not collection:
+            logger.info(collection)
             logger.error("Collection creation failed")
             raise HTTPException(
                 status_code=500,
