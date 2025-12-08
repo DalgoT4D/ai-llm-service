@@ -62,7 +62,7 @@ def query_file_v1(
 
         thread_id = None
         for i, prompt in enumerate(queries):
-            logger.info("Starting query $$$$$$$$$$$$$$$$$$$$$$$$$$$$$ %s: %s", i, prompt)
+            logger.info("Starting query %s: %s", i, prompt)
             # start a thread with the query
             thread_id = ai_platform_src.create_and_start_thread(
                 ai_platform_src.CreateAndStartThreadPayload(
