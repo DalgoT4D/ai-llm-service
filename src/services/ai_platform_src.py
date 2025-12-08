@@ -13,6 +13,7 @@ API_KEY = os.getenv("AI_PLATFORM_API_KEY")
 BASE_URI = os.getenv("AI_PLATFORM_BASE_URI")
 POLLING_INTERVAL = int(os.getenv("AI_PLATFORM_POLLING_INTERVAL", 5))
 TIMEOUT = int(os.getenv("AI_PLATFORM_REQUEST_TIMEOUT_SECS", 120))
+PROJECT_ID = int(os.getenv("PROJECT_ID", 1))
 HEADERS = {"x-api-key": f"ApiKey {API_KEY}"}
 
 if not BASE_URI:
@@ -38,7 +39,7 @@ class CreateAndStartThreadPayload(BaseModel):
     assistant_id: str
     remove_citation: bool = True
     thread_id: Optional[str] = None
-    project_id: int = 1
+    project_id: int = PROJECT_ID
 
 
 def upload_document(file: UploadFile) -> str:
