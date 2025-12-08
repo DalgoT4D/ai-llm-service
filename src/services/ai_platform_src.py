@@ -153,7 +153,7 @@ def create_and_start_thread(payload: CreateAndStartThreadPayload) -> str:
     Returns:
         thread_id (str): The ID of the thread created on the external platform.
     """
-    thread_url = f"{BASE_URI}/threads/"
+    thread_url = f"{BASE_URI}/threads/start"
     res = http_post(thread_url, json=payload.model_dump(), headers=HEADERS)
 
     if not res or not res.get("data") or not res["data"].get("thread_id"):
