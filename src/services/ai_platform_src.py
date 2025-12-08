@@ -38,6 +38,7 @@ class CreateAndStartThreadPayload(BaseModel):
     assistant_id: str
     remove_citation: bool = True
     thread_id: Optional[str] = None
+    project_id: int = 1
 
 
 def upload_document(file: UploadFile) -> str:
@@ -175,7 +176,7 @@ def poll_thread_result(thread_id: str, interval: int = 30, timeout: int = 120) -
     Returns:
         str: The result/answer from the thread, or raises HTTPException on timeout.
     """
-    status_url = f"{BASE_URI}/threads/{thread_id}"
+    status_url = f"{BASE_URI}/threads/result/{thread_id}"
     start_time = time.time()
 
     interval = POLLING_INTERVAL
