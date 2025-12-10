@@ -13,6 +13,7 @@ API_KEY = os.getenv("AI_PLATFORM_API_KEY")
 BASE_URI = os.getenv("AI_PLATFORM_BASE_URI")
 POLLING_INTERVAL = int(os.getenv("AI_PLATFORM_POLLING_INTERVAL", 5))
 TIMEOUT = int(os.getenv("AI_PLATFORM_REQUEST_TIMEOUT_SECS", 120))
+PROJECT_ID = int(os.getenv("PROJECT_ID", 1))
 HEADERS = {"x-api-key": f"ApiKey {API_KEY}"}
 
 if not BASE_URI:
@@ -38,6 +39,7 @@ class CreateAndStartThreadPayload(BaseModel):
     assistant_id: str
     remove_citation: bool = True
     thread_id: Optional[str] = None
+    project_id: int = PROJECT_ID
 
 
 def upload_document(file: UploadFile) -> str:
@@ -51,13 +53,18 @@ def upload_document(file: UploadFile) -> str:
         str: ID of the uploaded document.
     """
 
-    upload_url = f"{BASE_URI}/documents/upload"
+    upload_url = f"{BASE_URI}/documents/"
 
     # Ensure content_type is set, fallback to 'application/octet-stream' if None
     content_type = file.content_type or "application/octet-stream"
     files = {"src": (file.filename, file.file, content_type)}
     res = http_post(upload_url, files=files, headers=HEADERS)
 
+    if not res or not res.get("data") or not res["data"].get("id"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid response from document upload API: {res}",
+        )
     return res["data"]["id"]
 
 
@@ -71,9 +78,15 @@ def create_collection(payload: CollectionCreatePayload) -> str:
     Returns:
         str: The job ID of the collection creation in progress.
     """
-    create_collection_url = f"{BASE_URI}/collections/create"
+    create_collection_url = f"{BASE_URI}/collections/"
     res = http_post(create_collection_url, json=payload.model_dump(), headers=HEADERS)
-    return res["data"]["id"]
+
+    if not res or not res.get("data") or not res["data"].get("job_id"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid response from collection create API: {res}",
+        )
+    return res["data"]["job_id"]
 
 
 def poll_collection_job_status(job_id: str) -> dict:
@@ -86,7 +99,7 @@ def poll_collection_job_status(job_id: str) -> dict:
     Returns:
         dict: The JSON response having the job details.
     """
-    status_url = f"{BASE_URI}/collections/info/jobs/{job_id}"
+    status_url = f"{BASE_URI}/collections/jobs/{job_id}"
     final_res = http_get(status_url, headers=HEADERS)
 
     timeout = TIMEOUT
@@ -143,6 +156,12 @@ def create_and_start_thread(payload: CreateAndStartThreadPayload) -> str:
     """
     thread_url = f"{BASE_URI}/threads/start"
     res = http_post(thread_url, json=payload.model_dump(), headers=HEADERS)
+
+    if not res or not res.get("data") or not res["data"].get("thread_id"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid response from threads API: {res}",
+        )
     return res["data"]["thread_id"]
 
 
@@ -193,7 +212,7 @@ def delete_document(document_id: str) -> bool:
     Args:
         document_id (str): ID of the document to delete.
     """
-    delete_url = f"{BASE_URI}/documents/remove/{document_id}"
+    delete_url = f"{BASE_URI}/documents/{document_id}"
     res = http_delete(delete_url, headers=HEADERS)
 
     if not res.get("success", False):
