@@ -10,14 +10,32 @@ No outbound HTTP calls, no business logic. The celery task is the
 orchestrator; it polls the session and acts on what these handlers wrote.
 
 Mounted outside the existing authenticate_user dependency in main.py
-because kaapi authenticates via its own shared secret, not our client API key.
+because kaapi authenticates via HMAC-SHA256 over the request body, not
+our client API key.
+
+Auth scheme — confirmed against kaapi-backend/app/utils.py:
+    Headers:
+        X-Webhook-Signature: <hex HMAC-SHA256>
+        X-Webhook-Timestamp: <unix milliseconds>
+    Signing string:
+        f"{timestamp_ms}.".encode() + raw_body_bytes
+    Algorithm:
+        hmac.new(secret, signing_string, sha256).hexdigest()
+
+Because kaapi signs the *exact* bytes it sends (compact JSON, no spaces),
+we read `await request.body()` BEFORE parsing JSON; re-serializing the
+parsed dict cannot be relied on to reproduce the same byte sequence.
 """
 
-import os
+import hashlib
+import hmac
+import json
 import logging
+import os
+import time
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from src.file_search.session import FileSearchSession
 
@@ -27,38 +45,74 @@ router = APIRouter()
 
 WEBHOOK_SECRET = os.getenv("KAAPI_WEBHOOK_SECRET", "")
 
+# Reject callbacks whose timestamp is more than this far from "now".
+# Replay protection — kaapi itself does not enforce a window.
+_REPLAY_WINDOW_SECS = 300
 
-def _verify_kaapi_secret(authorization: Optional[str]) -> None:
+
+def _verify_kaapi_signature(
+    raw_body: bytes,
+    signature: Optional[str],
+    timestamp_ms: Optional[str],
+) -> None:
     """
-    Reject the request if the Authorization header doesn't match the shared secret.
+    Verify kaapi's HMAC-SHA256 webhook signature. Raises 401 on mismatch.
 
-    NOTE: header name/scheme is "Authorization: Bearer <secret>" by default. If
-    kaapi uses a different header (e.g. X-Kaapi-Signature), update both the
-    parameter binding in the routes below and this function. The exact scheme
-    is finalised at deployment time per the migration spec section 5.1.
+    Mirrors kaapi-backend/app/utils.py:sign_webhook_payload exactly.
     """
     if not WEBHOOK_SECRET:
-        # No secret configured — fail closed in production-likely envs.
-        logger.error("KAAPI_WEBHOOK_SECRET is not configured; rejecting callback")
+        logger.error("KAAPI_WEBHOOK_SECRET not configured; rejecting callback")
         raise HTTPException(status_code=401, detail="Webhook secret not configured")
 
-    expected = f"Bearer {WEBHOOK_SECRET}"
-    if authorization != expected:
-        logger.warning("Rejecting kaapi callback with bad auth header")
+    if not signature or not timestamp_ms:
+        logger.warning("Missing X-Webhook-Signature or X-Webhook-Timestamp header")
+        raise HTTPException(status_code=401, detail="Missing signature headers")
+
+    try:
+        ts = int(timestamp_ms)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Bad timestamp")
+
+    now_ms = int(time.time() * 1000)
+    if abs(now_ms - ts) > _REPLAY_WINDOW_SECS * 1000:
+        logger.warning("Webhook timestamp outside replay window: ts=%s now=%s",
+                       ts, now_ms)
+        raise HTTPException(status_code=401, detail="Stale timestamp")
+
+    signing_string = f"{ts}.".encode() + raw_body
+    expected = hmac.new(
+        WEBHOOK_SECRET.encode(), signing_string, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        logger.warning("Bad webhook signature for ts=%s", ts)
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+async def _verify_and_parse(request: Request) -> dict:
+    raw_body = await request.body()
+    _verify_kaapi_signature(
+        raw_body,
+        request.headers.get("x-webhook-signature"),
+        request.headers.get("x-webhook-timestamp"),
+    )
+    if not raw_body:
+        return {}
+    try:
+        return json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Bad JSON")
+
+
 @router.post("/collection-ready")
-def cb_collection_ready(
-    payload: dict,
+async def cb_collection_ready(
+    request: Request,
     session_id: str = Query(...),
-    authorization: Optional[str] = Header(None),
 ):
     """
     Kaapi reports that vector store creation has finished (success or failure).
     Body shape mirrors GET /api/v1/collections/jobs/{job_id}.
     """
-    _verify_kaapi_secret(authorization)
+    payload = await _verify_and_parse(request)
 
     session = FileSearchSession.get(session_id)
     if not session:
@@ -78,17 +132,17 @@ def cb_collection_ready(
 
 
 @router.post("/llm-answer")
-def cb_llm_answer(
-    payload: dict,
+async def cb_llm_answer(
+    request: Request,
     session_id: str = Query(...),
     query_index: int = Query(...),
-    authorization: Optional[str] = Header(None),
 ):
     """
     Kaapi reports the answer for one /llm/call request.
-    Body shape mirrors GET /api/v1/llm/call/{job_id} when complete.
+    Real shape per kaapi OpenAPI 0.5.0:
+        data.response.output.{type, content.{format, value}}
     """
-    _verify_kaapi_secret(authorization)
+    payload = await _verify_and_parse(request)
 
     session = FileSearchSession.get(session_id)
     if not session:
@@ -101,13 +155,15 @@ def cb_llm_answer(
         )
     else:
         try:
-            # Real shape per kaapi staging OpenAPI 0.5.0:
-            #   data.response.output.{type=text, content={format=text, value=...}}
             data = payload["data"]
-            response = data.get("response") or data.get("llm_response", {}).get("response", {})
+            # Tolerate either the OpenAPI 0.5.0 shape (data.response) or the older
+            # llm_response wrapper that some doc revisions described.
+            response = (
+                data.get("response")
+                or data.get("llm_response", {}).get("response", {})
+            )
             output = response["output"] or {}
             content = output.get("content") or {}
-            # Newer shape: output.content.value. Older shape: output.text.
             answer_text = content.get("value") or output.get("text")
             if answer_text is None:
                 raise KeyError("no answer text in output")
