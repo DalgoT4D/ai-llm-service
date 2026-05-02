@@ -101,8 +101,16 @@ def cb_llm_answer(
         )
     else:
         try:
-            response = payload["data"]["llm_response"]["response"]
-            answer_text = response["output"]["text"]
+            # Real shape per kaapi staging OpenAPI 0.5.0:
+            #   data.response.output.{type=text, content={format=text, value=...}}
+            data = payload["data"]
+            response = data.get("response") or data.get("llm_response", {}).get("response", {})
+            output = response["output"] or {}
+            content = output.get("content") or {}
+            # Newer shape: output.content.value. Older shape: output.text.
+            answer_text = content.get("value") or output.get("text")
+            if answer_text is None:
+                raise KeyError("no answer text in output")
             conv_id = response.get("conversation_id")
         except (KeyError, TypeError) as err:
             logger.error("malformed llm-answer payload for %s: %s", session_id, err)
