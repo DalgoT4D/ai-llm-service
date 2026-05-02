@@ -8,16 +8,16 @@ from src.utils.http_helper import http_post, http_delete
 
 logger = logging.getLogger()
 
-API_KEY = os.getenv("AI_PLATFORM_API_KEY")
-BASE_URI = os.getenv("AI_PLATFORM_BASE_URI")
-TIMEOUT = int(os.getenv("AI_PLATFORM_REQUEST_TIMEOUT_SECS", 120))
+API_KEY = os.getenv("KAAPI_API_KEY")
+BASE_URI = os.getenv("KAAPI_BASE_URI")
+TIMEOUT = int(os.getenv("KAAPI_REQUEST_TIMEOUT_SECS", 120))
 PUBLIC_BASE = os.getenv("AI_LLM_SERVICE_PUBLIC_BASE", "")
 HEADERS = {"x-api-key": f"ApiKey {API_KEY}"}
 
 if not BASE_URI:
     raise HTTPException(
         status_code=500,
-        detail="AI Platform base URI is not configured. Please set the AI_PLATFORM_BASE_URI environment variable.",
+        detail="Kaapi base URI is not configured. Please set the KAAPI_BASE_URI environment variable.",
     )
 
 
