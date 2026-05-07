@@ -63,7 +63,6 @@ def query_file_v1(
         FileSearchSession.set(session_id, session)
 
         # 2. Fire collection creation (kaapi will call our webhook when done)
-        # returns a job_id but we don't need it now. 
         ai_platform_src.create_collection(
             ai_platform_src.CollectionCreatePayload(
                 documents=session.document_ids or [],
