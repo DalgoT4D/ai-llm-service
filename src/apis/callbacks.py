@@ -13,7 +13,7 @@ Mounted outside the existing authenticate_user dependency in main.py
 because kaapi authenticates via HMAC-SHA256 over the request body, not
 our client API key.
 
-Auth scheme — confirmed against kaapi-backend/app/utils.py:
+Auth scheme — 
     Headers:
         X-Webhook-Signature: <hex HMAC-SHA256>
         X-Webhook-Timestamp: <unix milliseconds>
@@ -21,10 +21,6 @@ Auth scheme — confirmed against kaapi-backend/app/utils.py:
         f"{timestamp_ms}.".encode() + raw_body_bytes
     Algorithm:
         hmac.new(secret, signing_string, sha256).hexdigest()
-
-Because kaapi signs the *exact* bytes it sends (compact JSON, no spaces),
-we read `await request.body()` BEFORE parsing JSON; re-serializing the
-parsed dict cannot be relied on to reproduce the same byte sequence.
 """
 
 import hashlib
@@ -46,8 +42,7 @@ router = APIRouter()
 WEBHOOK_SECRET = os.getenv("KAAPI_WEBHOOK_SECRET", "")
 
 # Reject callbacks whose timestamp is more than this far from "now".
-# Replay protection — kaapi itself does not enforce a window.
-_REPLAY_WINDOW_SECS = 300
+_MAX_WEBHOOK_AGE_SECS = 300
 
 
 def _verify_kaapi_signature(
@@ -57,8 +52,7 @@ def _verify_kaapi_signature(
 ) -> None:
     """
     Verify kaapi's HMAC-SHA256 webhook signature. Raises 401 on mismatch.
-
-    Mirrors kaapi-backend/app/utils.py:sign_webhook_payload exactly.
+    Kaapi creates a X-Webhook-Signature using current timestamp + body + secret and then we also create the same signature and compare.
     """
     if not WEBHOOK_SECRET:
         logger.error("KAAPI_WEBHOOK_SECRET not configured; rejecting callback")
@@ -74,7 +68,7 @@ def _verify_kaapi_signature(
         raise HTTPException(status_code=401, detail="Bad timestamp")
 
     now_ms = int(time.time() * 1000)
-    if abs(now_ms - ts) > _REPLAY_WINDOW_SECS * 1000:
+    if abs(now_ms - ts) > _MAX_WEBHOOK_AGE_SECS * 1000:
         logger.warning("Webhook timestamp outside replay window: ts=%s now=%s",
                        ts, now_ms)
         raise HTTPException(status_code=401, detail="Stale timestamp")
@@ -110,7 +104,7 @@ async def cb_collection_ready(
 ):
     """
     Kaapi reports that vector store creation has finished (success or failure).
-    Body shape mirrors GET /api/v1/collections/jobs/{job_id}.
+    Body shape mirrors our older GET /api/v1/collections/jobs/{job_id}.
     """
     payload = await _verify_and_parse(request)
 
@@ -123,9 +117,13 @@ async def cb_collection_ready(
     if data.get("status") == "FAILED":
         session.error_message = data.get("error_message") or "collection failed"
     else:
-        collection = data.get("collection") or {}
-        session.vector_store_id = collection.get("knowledge_base_id")
-        session.collection_id = collection.get("id")
+        try:
+            collection = data["collection"]
+            session.vector_store_id = collection["knowledge_base_id"]
+            session.collection_id = collection["id"]
+        except (KeyError, TypeError) as err:
+            logger.error("malformed collection-ready payload for %s: %s", session_id, err)
+            session.error_message = "collection creation returned malformed payload"
 
     FileSearchSession.set(session_id, session)
     return {"status": "received", "response_id": session_id, "message": "ok"}
@@ -155,18 +153,8 @@ async def cb_llm_answer(
         )
     else:
         try:
-            data = payload["data"]
-            # Tolerate either the OpenAPI 0.5.0 shape (data.response) or the older
-            # llm_response wrapper that some doc revisions described.
-            response = (
-                data.get("response")
-                or data.get("llm_response", {}).get("response", {})
-            )
-            output = response["output"] or {}
-            content = output.get("content") or {}
-            answer_text = content.get("value") or output.get("text")
-            if answer_text is None:
-                raise KeyError("no answer text in output")
+            response = payload["data"]["response"]
+            answer_text = response["output"]["content"]["value"]
             conv_id = response.get("conversation_id")
         except (KeyError, TypeError) as err:
             logger.error("malformed llm-answer payload for %s: %s", session_id, err)
@@ -174,12 +162,8 @@ async def cb_llm_answer(
             FileSearchSession.set(session_id, session)
             return {"status": "received", "response_id": session_id, "message": "ok"}
 
-        # Defensive: pad results so query_index is always in range
-        while len(session.results) <= query_index:
-            session.results.append(None)
         session.results[query_index] = answer_text
 
-        # First writer wins for conversation_id (subsequent writes carry the same value)
         if session.conversation_id is None and conv_id:
             session.conversation_id = conv_id
 

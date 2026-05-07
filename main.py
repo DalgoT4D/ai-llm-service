@@ -102,9 +102,7 @@ app.include_router(
     dependencies=[Depends(authenticate_user)],
 )
 
-# Kaapi inbound callbacks. Mounted OUTSIDE authenticate_user — kaapi
-# authenticates via its own shared secret (KAAPI_WEBHOOK_SECRET),
-# verified inside the handlers themselves.
+# inbound callback route that Kaapi hits
 app.include_router(
     kaapi_callbacks_router,
     prefix="/api/v1/callbacks",

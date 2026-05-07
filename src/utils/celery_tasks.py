@@ -3,7 +3,6 @@ import traceback
 from typing import Optional
 
 from celery import shared_task
-from fastapi import HTTPException
 
 from src.custom_webhook import CustomWebhook, WebhookConfig
 from src.file_search.session import (
@@ -17,8 +16,7 @@ from src.services import ai_platform_src
 logger = logging.getLogger()
 
 
-# Per-step wait timeouts. Generous bounds against kaapi silence (e.g. webhook
-# never arrives because kaapi crashed). Real LLM calls finish in ~10-30s.
+# timeouts in case of any crash
 _COLLECTION_TIMEOUT_SECS = 120
 _LLM_CALL_TIMEOUT_SECS = 120
 
@@ -65,6 +63,7 @@ def query_file_v1(
         FileSearchSession.set(session_id, session)
 
         # 2. Fire collection creation (kaapi will call our webhook when done)
+        # returns a job_id but we don't need it now. 
         ai_platform_src.create_collection(
             ai_platform_src.CollectionCreatePayload(
                 documents=session.document_ids or [],
@@ -90,7 +89,7 @@ def query_file_v1(
             ai_platform_src.llm_call(
                 query=query,
                 vector_store_id=vector_store_id,
-                conversation_id=conversation_id,
+                conversation_id=conversation_id, # first time auto_create = true. 
                 instructions=assistant_prompt,
                 callback_url=ai_platform_src.llm_answer_callback_url(session_id, i),
             )

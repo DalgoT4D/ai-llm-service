@@ -7,14 +7,13 @@ from pydantic import BaseModel
 from config.redis_client import RedisClient
 
 
-# How often `wait_for_session_field` peeks at the session record.
-# 3s × 30s LLM call = at most 3s of added latency, negligible.
+# How often `wait_for_session_field` peeks at the session record in redis.
 POLL_INTERVAL_SECS = 3
 
 
 class SessionStatusEnum(str, Enum):
     active = "active"
-    locked = "locked"  # set after first query so no more files can be uploaded
+    locked = "locked"  # set after first query so no more files can be uploaded in the same session. 
 
 
 class OpenAISessionState(BaseModel):
@@ -22,8 +21,6 @@ class OpenAISessionState(BaseModel):
     local_fpaths: list[str]
     document_ids: Optional[list[str]] = []
     status: SessionStatusEnum = SessionStatusEnum.active
-
-    # Renames (kaapi vector-store flow replaces the v0/Assistants names)
     vector_store_id: Optional[str] = None    # was: assistant_id
     conversation_id: Optional[str] = None    # was: thread_id
     collection_id: Optional[str] = None      # for DELETE /collections/{id} on cleanup
