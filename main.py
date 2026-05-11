@@ -17,6 +17,7 @@ from logging.config import dictConfig
 
 from src.apis.api import router as text_summarization_router
 from src.apis.api_v1 import router as text_summarization_router_v1
+from src.apis.callbacks import router as kaapi_callbacks_router
 from config.celery_config import CeleryConfig
 from config.constants import TMP_UPLOAD_DIR_NAME, LOGS_DIR_NAME
 
@@ -99,6 +100,12 @@ app.include_router(
     text_summarization_router_v1,
     prefix="/api/v1",
     dependencies=[Depends(authenticate_user)],
+)
+
+# inbound callback route that Kaapi hits
+app.include_router(
+    kaapi_callbacks_router,
+    prefix="/api/v1/callbacks",
 )
 
 
