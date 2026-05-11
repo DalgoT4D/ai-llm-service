@@ -23,7 +23,6 @@ class OpenAISessionState(BaseModel):
     status: SessionStatusEnum = SessionStatusEnum.active
     vector_store_id: Optional[str] = None    # was: assistant_id
     conversation_id: Optional[str] = None    # was: thread_id
-    collection_id: Optional[str] = None      # for DELETE /collections/{id} on cleanup
 
     # In-flight per-query-call state. Reset by the Celery task at task start.
     queries: list[str] = []

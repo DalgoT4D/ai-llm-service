@@ -158,26 +158,15 @@ def llm_call(
 
 
 def delete_document(document_id: str) -> bool:
-    """Delete a document from kaapi. UNCHANGED."""
-    delete_url = f"{BASE_URI}/documents/{document_id}"
+    """
+    Permanently delete a document from kaapi. And does all the cleanup (delete collection, vector store etc.)
+    """
+    delete_url = f"{BASE_URI}/documents/{document_id}/permanent"
     res = http_delete(delete_url, headers=HEADERS)
 
     if not res.get("success", False):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to delete document {document_id}: {res.get('error')}",
-        )
-    return True
-
-
-def delete_collection(collection_id: str) -> bool:
-    """Delete a collection (vector store) from kaapi. NEW for cleanup."""
-    delete_url = f"{BASE_URI}/collections/{collection_id}"
-    res = http_delete(delete_url, headers=HEADERS)
-
-    if not res.get("success", False):
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to delete collection {collection_id}: {res.get('error')}",
         )
     return True

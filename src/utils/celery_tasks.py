@@ -133,9 +133,9 @@ def query_file_v1(
 def close_file_search_session_v1(self, session_id: str):
     """
     Cleanup at session close:
-      1. DELETE the kaapi collection (vector store) if we know its id.
-      2. DELETE each kaapi document we uploaded.
-      3. Remove the session record from Redis.
+      1. Permanently delete each kaapi document we uploaded. Kaapi cascades
+         this to detach from the collection / vector store and free storage.
+      2. Remove the session record from Redis.
 
     Failures on individual deletes are logged but do not abort the rest —
     we want best-effort cleanup so a stuck remote resource doesn't leak forever.
@@ -146,14 +146,6 @@ def close_file_search_session_v1(self, session_id: str):
             logger.info("close_file_search_session_v1: session %s already gone",
                         session_id)
             return
-
-        if session.collection_id:
-            logger.info("Deleting kaapi collection %s", session.collection_id)
-            try:
-                ai_platform_src.delete_collection(session.collection_id)
-            except Exception as err:
-                logger.warning("Failed to delete collection %s: %s",
-                               session.collection_id, err)
 
         for document_id in session.document_ids or []:
             logger.info("Deleting kaapi document %s", document_id)

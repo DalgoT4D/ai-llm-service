@@ -120,7 +120,6 @@ async def cb_collection_ready(
         try:
             collection = data["collection"]
             session.vector_store_id = collection["knowledge_base_id"]
-            session.collection_id = collection["id"]
         except (KeyError, TypeError) as err:
             logger.error("malformed collection-ready payload for %s: %s", session_id, err)
             session.error_message = "collection creation returned malformed payload"
