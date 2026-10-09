@@ -1,3 +1,8 @@
+> **This repository is now a read-only archive.**
+> Dalgo has moved to a monorepo at **[DalgoT4D/dalgo](https://github.com/DalgoT4D/dalgo)**. All active development, issues, and contributions should go there.
+
+---
+
 # ai-llm-service
 A lighweight service to serve ai/llm needs. All requests are queued as tasks and executed with some retry strategy by celery worker(s)
 
